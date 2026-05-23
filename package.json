@@ -1,0 +1,21 @@
+{
+  "name": "lumina-hdr",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --config vite.config.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.12",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "dependencies": {
+    "jpegxr": "^0.3.0",
+    "jszip": "^3.10.1",
+    "parse-exr": "^1.0.2"
+  }
+}

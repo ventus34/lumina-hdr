@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumina HDR - HDR Screenshot Preview & Conversion</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0NiIgZmlsbD0ibm9uZSIgdmlld0JveD0iMCAwIDQ4IDQ2Ij48cGF0aCBmaWxsPSIjODYzYmZmIiBkPSJNMjUuOTQ2IDQ0LjkzOGMtLjY2NC44NDUtMi4wMjEuMzc1LTIuMDIxLS42OThWMzMuOTM3YTIuMjYgMi4yNiAwIDAgMC0yLjI2Mi0yLjI2MkgxMC4yODdjLS45MiAwLTEuNDU2LTEuMDQtLjkyLTEuNzg4bDcuNDgtMTAuNDcxYzEuMDctMS40OTcgMC0zLjU3OC0xLjg0Mi0zLjU3OEgxLjIzN2MtLjkyIDAtMS40NTYtMS4wNC0uOTItMS43ODhMMTAuMDEzLjQ3NGMuMjE0LS4yOTcuNTU2LS40NzQuOTItLjQ3NGgyOC44OTRjLjkyIDAgMS40NTYgMS4wNC45MiAxLjc4OGwtNy40OCAxMC40NzFjLTEuMDcgMS40OTggMCAzLjU3OSAxLjg0MiAzLjU3OWgxMS4zNzdjLjk0MyAwIDEuNDczIDEuMDg4Ljg5IDEuODNMMjUuOTQ3IDQ0Ljk0eiIgc3R5bGU9ImZpbGw6Izg2M2JmZjtmaWxsOmNvbG9yKGRpc3BsYXktcDMgLjUyNTIgLjIzIDEpO2ZpbGwtb3BhY2l0eToxIi8+PG1hc2sgaWQ9ImEiIHdpZHRoPSI0OCIgaGVpZ2h0PSI0NiIgeD0iMCIgeT0iMCIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgc3R5bGU9Im1hc2stdHlwZTphbHBoYSI+PHBhdGggZmlsbD0iIzAwMCIgZD0iTTI1Ljg0MiA0NC45MzhjLS42NjQuODQ0LTIuMDIxLjM3NS0yLjAyIEwtMC42OThWMzMuOTM3YTIuMjYgMi4yNiAwIDAgMC0yLjI2Mi0yLjI2MkgxMC4xODNjLS45MiAwLTEuNDU2LTEuMDQtLjkyLTEuNzg4bDcuNDgtMTAuNDcxYzEuMDctMS40OTggMC0zLjU3OS0xLjg0Mi0zLjU3OUgxLjEzM2MtLjkyIDAtMS40NTYtMS4wNC0uOTItMS43ODdMOS45MS40NzNjLjIxNC0uMjk3LjU1Ni0uNDc0LjkyLS40NzRoMjguODk0Yy45MiAwIDEuNDU2IDEuMDQuOTIgMS43ODhsLTcuNDggMTAuNDcxYy0xLjA3IDEuNDk4IDAgMy41NzggMS44NDIgMy41NzhoMTEuMzc3Yy45NDMgMCgxLjQ3MyAxLjA4OC44OSAxLjgzMkwyNS44NDMgNDQuOTR6IiBzdHlsZT0iZmlsbDojMDAwO2ZpbGwtb3BhY2l0eToxIi8+PC9tYXNrPjxnIG1hc2s9InVybCgjYSkiPjxnIGZpbHRlcj0idXJsKCNiKSI+PGVsbGlwc2UgY3g9IjUuNTA4IiBjeT0iMTQuNzA0IiBmaWxsPSIjZWRlNmZmIiByeD0iNS45NzIiIHJ5PSIxNC43MDQiIHN0eWxlPSJmaWxsOiNlZGU2ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45Mjc1IC45MDMzIDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09Im1hdHJpeCguMDAzMjQgMSAxIC0uMDAzMjQgLTQuNDcgMzEuNTE2KSIvPjwvZz48ZyBmaWx0ZXI9InVybCgjYykiPjxlbGxpcHNlIGN4PSIxMC4zOTkiIGN5PSIyOS44NTEiIGZpbGw9IiNlZGU2ZmYiIHJ4PSIxMC4zOTkiIHJ5PSIyOS44NTEiIHN0eWxlPSJmaWxsOiNlZGU2ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45Mjc1IC45MDMzIDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09Im1hdHJpeCguMDAzMjQgMSAxIC0uMDAzMjQgLTM5LjMyOCA3Ljg4MykiLz48L2c+PGcgZmlsdGVyPSidXJsKCNkKSI+PGVsbGlwc2UgY3g9IjUuNTA4IiBjeT0iMzAuNDg3IiBmaWxsPSIjN2UxNGZmIiByeD0iNS41MDgiIHJ5PSIzMC40ODciIHN0eWxlPSJmaWxsOiM3ZTE0ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45MjM1IC4wNzY3IDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09InJvdGF0ZSg4OS44MTQgLTI1LjkxMyAtMTQuNjM5KXNjYWxlKDEgLTEpIi8+PC9nPjxnIGZpbHRlcj0idXJsKCNlKSI+PGVsbGlwc2UgY3g9IjUuNTA4IiBjeT0iMzAuNTk5IiBmaWxsPSIjN2UxNGZmIiByeD0iNS41MDgiIHJ5PSIzMC41OTkiIHN0eWxlPSJmaWxsOiM3ZTE0ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45MjM1IC4wNzY3IDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09InJvdGF0ZSg4OS44MTQgLTMyLjY0NCAtMy4zMzQpc2NhbGUoMSAtMSkiLz48L2c+PGcgZmlsdGVyPSidXJsKCNmKSI+PGVsbGlwc2UgY3g9IjUuNTA4IiBjeT0iMzAuNTk5IiBmaWxsPSIjN2UxNGZmIiByeD0iNS41MDgiIHJ5PSIzMC41OTkiIHN0eWxlPSJmaWxsOiM3ZTE0ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45MjM1IC4wNzY3IDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09Im1hdHJpeCguMDAzMjQgMSAxIC0uMDAzMjQgLTM0LjM0IDMwLjQ3KSIvPjwvZz48ZyBmaWx0ZXI9InVybCgjZyIpPjxlbGxpcHNlIGN4PSIxNC4wNzIiIGN5PSIyMi4wNzgiIGZpbGw9IiNlZGU2ZmYiIHJ4PSIxNC4wNzIiIHJ5PSIyMi4wNzgiIHN0eWxlPSJmaWxsOiNlZGU2ZmY7ZmlsbDpjb2xvcihkaXNwbGF5LXAzIC45Mjc1IC45MDMzIDEpO2ZpbGwtb3BhY2l0eToxIiB0cmFuc2Zvcm09InJvdGF0ZSg5My4zNSAyNC41MDYgNDguNDkzKXNjYWxlKC0xIDEpIi8+PC9nPjxnIGZpbHRlcj0idXJsKCNoKSI+PGVsbGlwc2UgY3g9IjMuNDciIGN5PSIyMS41MDEiIGZpbGw9IiM3ZTE0ZmYiIHJ4PSIzLjQ3IiByeT0iMjEuNTAxIiBzdHlsZT0iZmlsbDojN2UxNGZmO2ZpbGw6Y29sb3IoZGlzcGxheS1wMyAuNDkyMiAuMDc2NyAxKTtmaWxsLW9wYWNpdHk6MSIgdHJhbnNmb3JtPSJyb3RhdGUoODkuMDA5IDI4LjcwOCA0Ny41OSlzY2FsZSgtMSAxKSIvPjwvZz48ZyBmaWx0ZXI9InVybCgjaSkiPjxlbGxpcHNlIGN4PSIzLjQ3IiBjeT0iMjEuNTAxIiBmaWxsPSIjN2UxNGZmIiByeD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8ZmVCbGVuZCBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz48ZmVHYXVzc2lhbkJsdXIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzIwMDJfMTcxNTgiIHN0ZERldmlhdGlvbj0iNy42NTkiLz48L2ZpbHRlcj48ZmlsdGVyIGlkPSJjIiB3aWR0aD0iOTAuMzQiIGhlaWdodD0iNTEuNDM3IiB4PSItNTQuNjEzIiB5PSItNy41MzMiIGNvbG9yLWludGVycG9sYXRpb24tZmlsdGVycz0ic1JHQiIgZmlsdGVyVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48ZmVGbG9vZCBmbG9vZC1vcGFjaXR5PSIwIiByZXN1bHQ9IkJhY2tncm91bmRJbWFnZUZpeCIvPjxmZUJsZW5kIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9IkJhY2tncm91bmRJbWFnZUZpeCIgcmVzdWx0PSJzaGFwZSIvPjxmZUdhdXNzaWFuQmx1ciByZXN1bHQ9ImVmZmVjdDFfZm9yZWdyb3VuZEJsdXJfMjAwMl8xNzE1OCIgc3RkRGV2aWF0aW9uPSI3LjY1OSIvPjwvZmlsdGVyPjxmaWx0ZXIgaWQ9ImQiIHdpZHRoPSI3OS4zNTUiIGhlaWdodD0iMjkuNCIgeD0iLTQ5LjY0IiB5PSIyLjAzIiBjb2xvci1pbnRlcnBvbGF0aW9uLWZpbHRlcnM9InNSR0IiIGZpbHRlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGZlRmxvb2QgZmxvb2Qtb3BhY2l0eT0iMCIgcmVzdWx0PSJCYWNrZ3JvdW5kSW1hZ2VGaXgiLz48ZmVCbGVuZCBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz48ZmVHYXVzc2lhbkJsdXIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzIwMDJfMTcxNTgiIHN0ZERldmlhdGlvbj0iNC41OTYiLz48L2ZpbHRlcj48ZmlsdGVyIGlkPSJlIiB3aWR0aD0iNzkuNTc5IiBoZWlnaHQ9IjI5LjQiIHg9Ii00NS4wNDUiIHk9IjIwLjAyOSIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjNC41OTYiLz48L2ZpbHRlcj48ZmlsdGVyIGlkPSJmIiB3aWR0aD0iNzkuNTc5IiBoZWlnaHQ9IjI5LjQiIHg9Ii00My41MTMiIHk9IjIxLjE3OCIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjQuNTk2Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0iZyIgd2lkdGg9Ijc0Ljc0OSIgaGVpZ2h0PSI1OC44NTIiIHg9IjE1Ljc1NiIgeT0iLTE3LjkwMSIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjcuNjU5Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0iaCIgd2lkdGg9IjYxLjM3NyIgaGVpZ2h0PSIyNS4zNjIiIHg9IjIzLjU0OCIgeT0iMi4yODQiIGNvbG9yLWludGVycG9sYXRpb24tZmlsdGVycz0ic1JHQiIgZmlsdGVyVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48ZmVGbG9vZCBmbG9vZC1vcGFjaXR5PSIwIiByZXN1bHQ9IkJhY2tncm91bmRJbWFnZUZpeCIvPjxmZUJsZW5kIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9IkJhY2tncm91bmRJbWFnZUZpeCIgcmVzdWx0PSJzaGFwZSIvPjxmZUdhdXNzaWFuQmx1ciByZXN1bHQ9ImVmZmVjdDFfZm9yZWdyb3VuZEJsdXJfMjAwMl8xNzE1OCIgc3RkRGV2aWF0aW9uPSI0LjU5NiIvPjwvZmlsdGVyPjxmaWx0ZXIgaWQ9ImkiIHdpZHRoPSI2MS4zNzciIGhlaWdodD0iMjUuMzYyIiB4PSIyMy41NDgiIHk9IjIuMjg0IiBjb2xvci1pbnRlcnBvbGF0aW9uLWZpbHRlcnM9InNSR0IiIGZpbHRlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGZlRmxvb2QgZmxvb2Qtb3BhY2l0eT0iMCIgcmVzdWx0PSJCYWNrZ3JvdW5kSW1hZ2VGaXgiLz48ZmVCbGVuZCBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz48ZmVHYXVzc2lhbkJsdXIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzIwMDJfMTcxNTgiIHN0ZERldmlhdGlvbj0iNC41OTYiLz48L2ZpbHRlcj48ZmlsdGVyIGlkPSJqIiB3aWR0aD0iNTYuMDQ1IiBoZWlnaHQ9IjYzLjY0OSIgeD0iLTI3LjYzNiIgeT0iLTIyLjg1MyIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjQuNTk2Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0iayIgd2lkdGg9IjU0LjgxNCIgaGVpZ2h0PSI2NC42NDYiIHg9IjIwLjExNiIgeT0iLTM4LjQxNSIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjQuNTk2Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0ibCIgd2lkdGg9IjMzLjU0MSIgaGVpZ2h0PSIzNS4zMTMiIHg9IjI0LjY0MSIgeT0iLTExLjMyMyIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjQuNTk2Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0ibSIgd2lkdGg9IjU0LjgxNCIgaGVpZ2h0PSI2NC42NDYiIHg9Ii0yOS4yODYiIHk9IjYuMDA5IiBjb2xvci1pbnRlcnBvbGF0aW9uLWZpbHRlcnM9InNSR0IiIGZpbHRlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGZlRmxvb2QgZmxvb2Qtb3BhY2l0eT0iMCIgcmVzdWx0PSJCYWNrZ3JvdW5kSW1hZ2VGaXgiLz48ZmVCbGVuZCBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz48ZmVHYXVzc2lhbkJsdXIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzIwMDJfMTcxNTgiIHN0ZERldmlhdGlvbj0iNC41OTYiLz48L2ZpbHRlcj48ZmlsdGVyIGlkPSJuIiB3aWR0aD0iNTQuODE0IiBoZWlnaHQ9IjY0LjY0NiIgeD0iLTI5LjI4NiIgeT0iNi4wMDkiIGNvbG9yLWludGVycG9sYXRpb24tZmlsdGVycz0ic1JHQiIgZmlsdGVyVW5pdHM9InVzZXJTcGFjZU9uVXNlIj48ZmVGbG9vZCBmbG9vZC1vcGFjaXR5PSIwIiByZXN1bHQ9IkJhY2tncm91bmRJbWFnZUZpeCIvPjxmZUJsZW5kIGluPSJTb3VyY2VHcmFwaGljIiBpbjI9IkJhY2tncm91bmRJbWFnZUZpeCIgcmVzdWx0PSJzaGFwZSIvPjxmZUdhdXNzaWFuQmx1ciByZXN1bHQ9ImVmZmVjdDFfZm9yZWdyb3VuZEJsdXJfMjAwMl8xNzE1OCIgc3RkRGV2aWF0aW9uPSI0LjU5NiIvPjwvZmlsdGVyPjxmaWx0ZXIgaWQ9Im8iIHdpZHRoPSI1NC44MTQiIGhlaWdodD0iKiIgeD0iOC4yNDQiIHk9Ii0yLjQxNiIgY29sb3ItaW50ZXJwb2xhdGlvbi1maWx0ZXJzPSJzUkdCIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPjxmZUZsb29kIGZsb29kLW9wYWNpdHk9IjAiIHJlc3VsdD0iQmFja2dyb3VuZEltYWdlRml4Ii8+PGZlQmxlbmQgaW49IlNvdXJjZUdyYXBoaWMiIGluMj0iQmFja2dyb3VuZEltYWdlRml4IiByZXN1bHQ9InNoYXBlIi8+PGZlR2F1c3NpYW5CbHVyIHJlc3VsdD0iZWZmZWN0MV9mb3JlZ3JvdW5kQmx1cl8yMDAyXzE3MTU4IiBzdGREZXZpYXRpb249IjQuNTk2Ii8+PC9maWx0ZXI+PGZpbHRlciBpZD0icCIgd2lkdGg9IjM5LjQwOSIgaGVpZ2h0PSI0My42MjMiIHg9IjE4LjcxMyIgeT0iMTAuNTg4IiBjb2xvci1pbnRlcnBvbGF0aW9uLWZpbHRlcnM9InNSR0IiIGZpbHRlclVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PGZlRmxvb2QgZmxvb2Qtb3BhY2l0eT0iMCIgcmVzdWx0PSJCYWNrZ3JvdW5kSW1hZ2VGaXgiLz48ZmVCbGVuZCBpbj0iU291cmNlR3JhcGhpYyIgaW4yPSJCYWNrZ3JvdW5kSW1hZ2VGaXgiIHJlc3VsdD0ic2hhcGUiLz48ZmVHYXVzc2lhbkJsdXIgcmVzdWx0PSJlZmZlY3QxX2ZvcmVncm91bmRCbHVyXzIwMDJfMTcxNTgiIHN0ZERldmlhdGlvbj0iNC41OTYiLz48L2ZpbHRlcj48L2RlZnM+PC9zdmc+..." />
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00f2fe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+        <circle cx="12" cy="12" r="4" fill="rgba(0, 242, 254, 0.2)"/>
+      </svg>
+      <h1>LUMINA HDR</h1>
+      <span>v1.0.0</span>
+    </div>
+
+    <div class="app-tabs">
+      <button id="tab-viewer" class="tab-btn active">Interactive Preview</button>
+      <button id="tab-batch" class="tab-btn">Batch Converter</button>
+    </div>
+
+    <div class="header-actions">
+      <select id="select-synthetic-pattern" class="select-synthetic">
+        <option value="cosmic">Cosmic HDR Scene (Default)</option>
+        <option value="macbeth">Macbeth & Calibration Grids</option>
+        <option value="landscape">Sunset Mountain Landscape</option>
+        <option value="neon">Neon Cyberpunk Cityscape</option>
+        <option value="radial">Siemens Star & Zone Plate</option>
+      </select>
+      <button id="btn-synthetic" class="btn btn-accent">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.886L5 9l4.886 1.912L12 17l1.912-6.088L19 9l-5.088-1.912Z"/><path d="M5 3v4M3 5h4M19 17v4M17 19h4"/></svg>
+        Generate
+      </button>
+    </div>
+  </header>
+
+  <!-- Main App Panel -->
+  <main>
+    
+    <!-- VIEW 1: INTERACTIVE PREVIEW -->
+    <div id="view-viewer" class="panel-view active">
+      
+      <!-- Side Control Panel -->
+      <aside class="sidebar">
+        
+        <!-- File Upload -->
+        <section class="control-section">
+          <h2>Source File</h2>
+          <div id="dropzone" class="file-dropzone">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            <p>Drag and drop file here or click</p>
+            <span>Supported: JXR, EXR, HDR, PNG, JPG, WebP</span>
+            <input type="file" id="file-input" accept=".jxr,.wdp,.exr,.hdr,.png,.jpg,.jpeg,.webp" style="display: none;" />
+          </div>
+        </section>
+
+        <!-- Image Metadata -->
+        <section class="control-section">
+          <h2>Image Metadata</h2>
+          <div id="metadata-empty" class="help-guide">No file loaded. Upload a file or generate a test image.</div>
+          <div id="metadata-details" class="meta-grid" style="display: none;">
+            <div class="meta-label">Name:</div>
+            <div id="meta-name" class="meta-value">-</div>
+            
+            <div class="meta-label">Format:</div>
+            <div id="meta-format" class="meta-value">-</div>
+            
+            <div class="meta-label">Dimensions:</div>
+            <div id="meta-resolution" class="meta-value">-</div>
+            
+            <div class="meta-label">Bit Depth:</div>
+            <div id="meta-depth" class="meta-value">-</div>
+            
+            <div class="meta-label">Channels:</div>
+            <div id="meta-channels" class="meta-value">-</div>
+
+            <div class="meta-label">Peak Brightness:</div>
+            <div id="meta-peak-nits" class="meta-value">-</div>
+          </div>
+        </section>
+
+        <!-- HDR Calibration -->
+        <section class="control-section">
+          <h2>HDR Calibration</h2>
+          
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-sdr-white">SDR White Point (Nits)</label>
+            </div>
+            <select id="select-sdr-white">
+              <option value="80">80 nits (Standard scRGB)</option>
+              <option value="200" selected>200 nits (Default Windows)</option>
+              <option value="203">203 nits (ITU-R BT.2408)</option>
+              <option value="300">300 nits (Bright Display)</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          <div class="control-group" id="group-custom-sdr-white" style="display: none;">
+            <div class="control-header">
+              <label class="control-label" for="slider-sdr-white">SDR White Brightness</label>
+              <span id="val-sdr-white" class="control-value">200 nits</span>
+            </div>
+            <input type="range" id="slider-sdr-white" min="80" max="400" step="1" value="200" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-target-peak">Target Peak HDR (Nits)</label>
+            </div>
+            <select id="select-target-peak">
+              <option value="400">400 nits (Low HDR / OLED)</option>
+              <option value="600">600 nits (Mid HDR)</option>
+              <option value="1000" selected>1000 nits (Recommended / Standard)</option>
+              <option value="1500">1500 nits (Bright HDR)</option>
+              <option value="2000">2000 nits (Extreme HDR)</option>
+              <option value="4000">4000 nits (Dolby Vision peak)</option>
+              <option value="custom">Custom...</option>
+            </select>
+          </div>
+
+          <div class="control-group" id="group-custom-target-peak" style="display: none;">
+            <div class="control-header">
+              <label class="control-label" for="slider-target-peak">Target Brightness</label>
+              <span id="val-target-peak" class="control-value">1000 nits</span>
+            </div>
+            <input type="range" id="slider-target-peak" min="400" max="4000" step="50" value="1000" />
+          </div>
+
+          <div class="control-group" style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+            <input type="checkbox" id="checkbox-auto-exposure" checked style="cursor: pointer; width: 16px; height: 16px;" />
+            <label class="control-label" for="checkbox-auto-exposure" style="cursor: pointer; margin-bottom: 0;">Auto Exposure Correction</label>
+          </div>
+
+          <div class="control-group" id="group-smart-upmix" style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+            <input type="checkbox" id="checkbox-smart-upmix" checked style="cursor: pointer; width: 16px; height: 16px;" />
+            <label class="control-label" for="checkbox-smart-upmix" style="cursor: pointer; margin-bottom: 0;">Smart SDR-to-HDR Upmix</label>
+          </div>
+        </section>
+
+        <!-- Display Mode -->
+        <section class="control-section">
+          <h2>Display Mode</h2>
+          
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-preview-mode">Preview Mode</label>
+            </div>
+            <select id="select-preview-mode">
+              <option value="split" selected>Comparison (Split-screen V)</option>
+              <option value="split-h">Comparison (Split-screen H)</option>
+              <option value="side-by-side">Comparison (Side-by-Side)</option>
+              <option value="blend">Comparison (Opacity Blend)</option>
+              <option value="hdr">HDR Only (Tone-mapped)</option>
+              <option value="sdr">SDR Only (Clamped)</option>
+            </select>
+          </div>
+
+          <div class="control-group" id="group-blend-opacity" style="display: none;">
+            <div class="control-header">
+              <label class="control-label" for="slider-blend-opacity">Blend Opacity</label>
+              <span id="val-blend-opacity" class="control-value">50%</span>
+            </div>
+            <input type="range" id="slider-blend-opacity" min="0" max="100" step="1" value="50" />
+          </div>
+
+          <div class="control-group" style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+            <input type="checkbox" id="checkbox-native-hdr" style="cursor: pointer; width: 16px; height: 16px;" />
+            <label class="control-label" for="checkbox-native-hdr" style="cursor: pointer; margin-bottom: 0;">HDR Monitor Mode (Experimental)</label>
+          </div>
+          
+          <!-- HDR Status and Capability Card -->
+          <div class="hdr-status-card" id="hdr-status-card">
+            <div class="hdr-status-header" id="hdr-status-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+              <span class="hdr-status-title" style="margin-bottom: 0;">HDR Capabilities Status</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron" id="hdr-status-chevron" style="transition: transform 0.2s ease;"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            
+            <div class="hdr-status-content" id="hdr-status-content" style="display: none; flex-direction: column; gap: 10px; margin-top: 10px;">
+              <div class="hdr-status-row">
+                <span class="status-label">Browser API:</span>
+                <span id="hdr-api-status" class="status-badge status-loading">Checking...</span>
+              </div>
+              <div class="hdr-status-row">
+                <span class="status-label">OS & Display:</span>
+                <span id="hdr-display-status" class="status-badge status-loading">Checking...</span>
+              </div>
+              <div class="hdr-status-row">
+                <span class="status-label">Active Mode:</span>
+                <span id="hdr-active-mode-status" class="status-badge status-sdr">SDR Mode</span>
+              </div>
+
+              <!-- Warning notice shown when HDR mode is checked -->
+              <div class="help-guide" id="native-hdr-help" style="font-size: 10px; margin-top: 6px; opacity: 0.9; display: none; line-height: 1.4; color: var(--accent-orange); border-left: 2px solid var(--accent-orange); padding-left: 6px;">
+                Requires active HDR settings in the OS, and compatible hardware. In Chrome/Edge, enable <code>chrome://flags/#enable-experimental-web-platform-features</code> if needed.
+              </div>
+              
+              <div class="hdr-status-divider"></div>
+              
+              <div class="hdr-features-grid">
+                <div class="hdr-feature-category">
+                  <span class="hdr-feature-title">Works Everywhere (SDR & HDR Displays)</span>
+                  <ul class="hdr-feature-list">
+                    <li>✓ Load JXR, OpenEXR, Radiance HDR</li>
+                    <li>✓ Exposure, Calibration & Game Presets</li>
+                    <li>✓ Color Grading & False Color View</li>
+                    <li>✓ <strong>SDR & High-Precision HDR Exports</strong></li>
+                  </ul>
+                </div>
+                <div class="hdr-feature-category">
+                  <span class="hdr-feature-title">Requires HDR Monitor Mode</span>
+                  <ul class="hdr-feature-list">
+                    <li>⚡ Native Rec.2100 PQ Screen Colors</li>
+                    <li>⚡ Brightness peaks above 100 nits</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div id="hdr-instructions-toggle" class="hdr-instructions-toggle">
+                <span>Setup Instructions</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+              
+              <div id="hdr-instructions-content" class="hdr-instructions-content" style="display: none;">
+                <ol>
+                  <li>Enable HDR in your system settings (Windows: HDR toggle / macOS: High Dynamic Range checkbox).</li>
+                  <li>In Chrome/Edge, search for <code>chrome://flags/#enable-experimental-web-platform-features</code> and set to <strong>Enabled</strong>.</li>
+                  <li>Restart the browser and check <strong>HDR Monitor Mode</strong> above.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Visualizations -->
+        <section class="control-section">
+          <h2>Visualizations</h2>
+          <div class="control-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <input type="checkbox" id="checkbox-heatmap" style="cursor: pointer; width: 16px; height: 16px;" />
+            <label class="control-label" for="checkbox-heatmap" style="cursor: pointer; margin-bottom: 0; user-select: none;">False Color Heatmap</label>
+          </div>
+          <div class="control-group" style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="checkbox-clipping" style="cursor: pointer; width: 16px; height: 16px;" />
+            <label class="control-label" for="checkbox-clipping" style="cursor: pointer; margin-bottom: 0; user-select: none;">Highlight Clipping Zebra</label>
+          </div>
+        </section>
+
+        <!-- Tone Mapping Settings -->
+        <section class="control-section">
+          <h2>Tone Mapping</h2>
+          
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-operator">Operator</label>
+            </div>
+            <select id="select-operator">
+              <option value="2" selected>ACES Filmic</option>
+              <option value="3">Hable</option>
+              <option value="4">Lottes Filmic</option>
+              <option value="5">Uchimura</option>
+              <option value="1">Reinhard</option>
+              <option value="0">Linear / Clamp</option>
+            </select>
+          </div>
+
+          <!-- Operator Info Card (Collapsible) -->
+          <div class="operator-info-card" id="operator-info-card">
+            <div class="operator-info-header" id="operator-info-header">
+              <span class="info-title">About this Operator</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron" id="operator-info-chevron" style="transition: transform 0.2s ease;"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+            <div class="operator-info-content" id="operator-info-content" style="display: none;">
+              <h3 id="operator-info-name">ACES Filmic</h3>
+              <p id="operator-info-desc">Academy Color Encoding System standard. A high-contrast cinematic S-curve with natural highlight roll-off and rich color retention.</p>
+              <div class="operator-info-details">
+                <div class="detail-row">
+                  <span class="detail-label">Characteristics:</span>
+                  <span id="operator-info-char" class="detail-value">High contrast, cinematic S-curve</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Best for / Used in:</span>
+                  <span id="operator-info-usage" class="detail-value">Cyberpunk 2077, Spider-Man</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-exposure">Exposure (Stops)</label>
+              <span id="val-exposure" class="control-value">0.00</span>
+            </div>
+            <input type="range" id="slider-exposure" min="-5" max="5" step="0.05" value="0" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-gamma">Gamma</label>
+              <span id="val-gamma" class="control-value">2.20</span>
+            </div>
+            <input type="range" id="slider-gamma" min="1.0" max="3.0" step="0.05" value="2.2" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-contrast">Contrast</label>
+              <span id="val-contrast" class="control-value">1.00</span>
+            </div>
+            <input type="range" id="slider-contrast" min="0.5" max="2.0" step="0.05" value="1.0" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-sdr-boost">SDR-to-HDR Boost</label>
+              <span id="val-sdr-boost" class="control-value">1.00x</span>
+            </div>
+            <input type="range" id="slider-sdr-boost" min="1.0" max="10.0" step="0.1" value="1.0" disabled />
+          </div>
+        </section>
+
+        <!-- Color Grading -->
+        <section class="control-section">
+          <h2>Color Grading</h2>
+          
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-saturation">Saturation</label>
+              <span id="val-saturation" class="control-value">1.00</span>
+            </div>
+            <input type="range" id="slider-saturation" min="0.0" max="2.0" step="0.05" value="1.00" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-highlights">Highlights</label>
+              <span id="val-highlights" class="control-value">0.00</span>
+            </div>
+            <input type="range" id="slider-highlights" min="-1.0" max="1.0" step="0.05" value="0.00" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-shadows">Shadows</label>
+              <span id="val-shadows" class="control-value">0.00</span>
+            </div>
+            <input type="range" id="slider-shadows" min="-1.0" max="1.0" step="0.05" value="0.00" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-color-temp">Color Temp</label>
+              <span id="val-color-temp" class="control-value">0.00</span>
+            </div>
+            <input type="range" id="slider-color-temp" min="-1.0" max="1.0" step="0.05" value="0.00" />
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="slider-color-tint">Tint</label>
+              <span id="val-color-tint" class="control-value">0.00</span>
+            </div>
+            <input type="range" id="slider-color-tint" min="-1.0" max="1.0" step="0.05" value="0.00" />
+          </div>
+        </section>
+
+        <!-- Export / Conversion -->
+        <section class="control-section">
+          <h2>Export / Conversion</h2>
+          
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-export-format">Output Format</label>
+            </div>
+            <select id="select-export-format">
+              <option value="png">PNG (SDR, 8-bit)</option>
+              <option value="png10sdr">PNG (SDR, 10-bit)</option>
+              <option value="png10pq">PNG (HDR, 10-bit PQ BT.2100)</option>
+              <option value="png10hlg">PNG (HDR, 10-bit HLG BT.2100)</option>
+              <option value="png10hdr">PNG (HDR, 10-bit Linear Rec.709)</option>
+              <option value="png12sdr">PNG (SDR, 12-bit)</option>
+              <option value="png12pq">PNG (HDR, 12-bit PQ BT.2100)</option>
+              <option value="png12hlg">PNG (HDR, 12-bit HLG BT.2100)</option>
+              <option value="png12hdr">PNG (HDR, 12-bit Linear Rec.709)</option>
+              <option value="png16sdr">PNG (SDR, 16-bit)</option>
+              <option value="png16pq">PNG (HDR, 16-bit PQ BT.2100)</option>
+              <option value="png16hlg">PNG (HDR, 16-bit HLG BT.2100)</option>
+              <option value="png16hdr">PNG (HDR, 16-bit Linear Rec.709)</option>
+              <option value="webp">WebP (SDR, 8-bit)</option>
+              <option value="jpeg">JPEG (SDR, 8-bit)</option>
+              <option value="hdr">Radiance HDR (HDR, 32-bit Float)</option>
+            </select>
+          </div>
+
+          <div class="control-group" id="jpeg-quality-group" style="display: none;">
+            <div class="control-header">
+              <label class="control-label" for="slider-jpeg-quality">JPEG Quality</label>
+              <span id="val-jpeg-quality" class="control-value">90%</span>
+            </div>
+            <input type="range" id="slider-jpeg-quality" min="50" max="100" step="1" value="90" />
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 16px;">
+            <button id="btn-export" class="btn btn-primary" style="flex: 1;">Export Image</button>
+            <button id="btn-reset" class="btn btn-secondary" title="Reset View">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <!-- Navigation & Shortcuts Instructions -->
+        <section class="control-sectionHelp" style="padding: 20px; font-size: 12px;">
+          <h2 style="font-size: 11px; margin-bottom: 8px;">Navigation & Shortcuts</h2>
+          <ul class="help-guide">
+            <li><strong>Zoom:</strong> Mouse wheel / Touchpad</li>
+            <li><strong>Pan:</strong> Click and drag image</li>
+            <li><strong>Comparison (Split-Screen):</strong> Drag the blue slider dividing left/right on the image</li>
+          </ul>
+        </section>
+      </aside>
+
+      <!-- Main Viewport Area with WebGL Canvas -->
+      <div class="viewport-container">
+        
+        <div class="split-instructions">
+          Comparison Slider: Left side is <span>Standard SDR (Clamped)</span>, right side is <span>Processed HDR</span>
+        </div>
+
+        <!-- Floating Viewport Labels -->
+        <div id="viewport-label-left" class="viewport-label viewport-label-left" style="display: none;">SDR (Clamped)</div>
+        <div id="viewport-label-right" class="viewport-label viewport-label-right" style="display: none;">HDR (ACES Filmic)</div>
+
+        <div id="canvas-container" class="canvas-wrapper">
+          <canvas id="hdr-canvas"></canvas>
+        </div>
+
+        <!-- HUD: Pixel Inspector on mouse hover -->
+        <div id="pixel-hud" class="inspector-hud" style="display: none;">
+          <div class="hud-color-swatch" id="hud-swatch"></div>
+          <div class="hud-item">
+            <span class="hud-label">Position</span>
+            <span class="hud-value" id="hud-pos">X: 0, Y: 0</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">Luminance (Nits)</span>
+            <span class="hud-value nit-val" id="hud-nits">0.00 nits</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">Raw Float RGB</span>
+            <span class="hud-value" id="hud-raw-rgb">R: 0.000, G: 0.000, B: 0.000</span>
+          </div>
+          <div class="hud-item">
+            <span class="hud-label">SDR Color</span>
+            <span class="hud-value" id="hud-sdr-rgb">RGB (0, 0, 0)</span>
+          </div>
+        </div>
+
+        <!-- Histogram Overlay -->
+        <div class="histogram-overlay" id="histogram-overlay">
+          <div class="histogram-header">
+            <h3 id="histogram-title">Luminance Histogram</h3>
+            <div class="histogram-actions">
+              <div class="histogram-controls" id="histogram-controls" style="display: none;">
+                <!-- Channel Filter pills -->
+                <div class="hist-pills-group">
+                  <button class="hist-pill active" data-channel="all">All</button>
+                  <button class="hist-pill" data-channel="lum">Lum</button>
+                  <button class="hist-pill" data-channel="r">R</button>
+                  <button class="hist-pill" data-channel="g">G</button>
+                  <button class="hist-pill" data-channel="b">B</button>
+                </div>
+                <!-- Y-Scale Toggle -->
+                <div class="hist-pills-group">
+                  <button class="hist-pill active" data-scale="log" title="Logarithmic Scale">Log</button>
+                  <button class="hist-pill" data-scale="linear" title="Linear Scale">Lin</button>
+                </div>
+              </div>
+              <button id="btn-histogram-expand" class="hist-btn-action" title="Expand Histogram">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="histogram-body">
+            <canvas id="histogram-canvas"></canvas>
+            <div id="histogram-tooltip" class="histogram-tooltip" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay">
+          <div class="spinner"></div>
+          <p id="loading-text" style="font-family: var(--font-display); font-size: 15px; letter-spacing: 0.5px;">Loading WebAssembly decoder...</p>
+        </div>
+
+        <!-- Toast for Notifications -->
+        <div id="toast" class="toast"></div>
+
+      </div>
+
+    </div>
+
+    <!-- VIEW 2: BATCH CONVERTER -->
+    <div id="view-batch" class="panel-view">
+      <div class="batch-container">
+        
+        <!-- Left Side: File List and Dropzone -->
+        <div class="batch-left">
+          <div id="batch-dropzone" class="batch-dropzone">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            <p style="font-size: 16px; font-weight: 500; margin-top: 10px;">Drag and drop multiple HDR files</p>
+            <span style="margin-top: 6px;">You can drop multiple .jxr, .exr, or .hdr files at once</span>
+            <input type="file" id="batch-file-input" accept=".jxr,.wdp,.exr,.hdr" multiple style="display: none;" />
+          </div>
+
+          <div class="batch-list-wrapper">
+            <div id="batch-empty-state" class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+              </svg>
+              <p>No files in conversion queue</p>
+            </div>
+            <div id="batch-files-list" style="display: none;">
+              <!-- Elements generated dynamically in JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Batch Options and Parameters -->
+        <div class="batch-right">
+          <h2 style="font-family: var(--font-display); font-size: 16px; border-bottom: 1px solid var(--panel-border); padding-bottom: 12px; margin-bottom: 8px;">Batch Settings</h2>
+          
+          <!-- Batch HDR Info Tip -->
+          <div class="batch-info-tip">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            <span>Batch conversion runs mathematically. <strong>No HDR monitor or HDR Monitor Mode required</strong>.</span>
+          </div>
+          
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="batch-select-operator">Operator</label>
+            </div>
+            <select id="batch-select-operator">
+              <option value="2" selected>ACES Filmic</option>
+              <option value="3">Hable</option>
+              <option value="4">Lottes Filmic</option>
+              <option value="5">Uchimura</option>
+              <option value="1">Reinhard</option>
+              <option value="0">Linear / Clamp</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="batch-select-format">Output Format</label>
+            </div>
+            <select id="batch-select-format">
+              <option value="png">PNG (SDR, 8-bit)</option>
+              <option value="png10sdr">PNG (SDR, 10-bit)</option>
+              <option value="png10pq">PNG (HDR, 10-bit PQ BT.2100)</option>
+              <option value="png10hlg">PNG (HDR, 10-bit HLG BT.2100)</option>
+              <option value="png10hdr">PNG (HDR, 10-bit Linear Rec.709)</option>
+              <option value="png12sdr">PNG (SDR, 12-bit)</option>
+              <option value="png12pq">PNG (HDR, 12-bit PQ BT.2100)</option>
+              <option value="png12hlg">PNG (HDR, 12-bit HLG BT.2100)</option>
+              <option value="png12hdr">PNG (HDR, 12-bit Linear Rec.709)</option>
+              <option value="png16sdr">PNG (SDR, 16-bit)</option>
+              <option value="png16pq">PNG (HDR, 16-bit PQ BT.2100)</option>
+              <option value="png16hlg">PNG (HDR, 16-bit HLG BT.2100)</option>
+              <option value="png16hdr">PNG (HDR, 16-bit Linear Rec.709)</option>
+              <option value="webp">WebP (SDR, 8-bit)</option>
+              <option value="jpeg">JPEG (SDR, 8-bit)</option>
+              <option value="hdr">Radiance HDR (HDR, 32-bit Float)</option>
+            </select>
+          </div>
+
+          <div class="batch-actions-section">
+            <div id="batch-progress" class="batch-progress-container" style="display: none;">
+              <div class="batch-progress-text">
+                <span id="batch-progress-label">Processing...</span>
+                <span id="batch-progress-percent">0%</span>
+              </div>
+              <div class="batch-progress-bar-bg">
+                <div id="batch-progress-bar" class="batch-progress-bar"></div>
+              </div>
+            </div>
+
+            <button id="btn-batch-clear" class="btn btn-secondary" style="width: 100%; justify-content: center; margin-bottom: 6px;">Clear List</button>
+            <button id="btn-batch-start" class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 14px; padding: 12px 20px;">
+              Start Conversion & Download (.zip)
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
