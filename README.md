@@ -1,5 +1,7 @@
 # Lumina HDR - HDR Screenshot Preview & Conversion Tool
 
+https://ventus34.github.io/lumina-hdr/
+
 Lumina HDR is a feature-rich, client-side web application designed for viewing, calibrating, tone mapping, and batch-converting HDR screenshots and images (including JXR, EXR, and Radiance HDR). It provides interactive tools to preview high-dynamic-range content and export it to modern formats (like high-precision HDR/SDR PNGs) with precise control. Made with Antigravity (and Gemini 3.5 Flash) to solve problem of viewing JXR HDR screenshots from Xbox app in Discord/MacOS.
 
 ---
