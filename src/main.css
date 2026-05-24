@@ -1310,3 +1310,48 @@ input[type="range"]:disabled::-webkit-slider-thumb {
   color: var(--text-primary);
 }
 
+/* Example Scenes tags & styling */
+.example-tag {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border: 1px solid var(--panel-border);
+}
+
+.example-tag.tag-avif {
+  background: rgba(0, 242, 254, 0.04);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 242, 254, 0.15);
+}
+
+.example-tag.tag-jxr {
+  background: rgba(124, 58, 237, 0.04);
+  color: var(--accent-purple);
+  border: 1px solid rgba(124, 58, 237, 0.15);
+}
+
+.example-tag.tag-native {
+  background: rgba(16, 185, 129, 0.04);
+  color: var(--accent-green);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+.example-tag.tag-renodx {
+  background: rgba(245, 158, 11, 0.04);
+  color: var(--accent-orange);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+}
+
+.example-tag.tag-rtx {
+  background: rgba(124, 58, 237, 0.04);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.15);
+}
+
+

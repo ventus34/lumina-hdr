@@ -1,0 +1,114 @@
+[
+  {
+    "filename": "Battlefield6_native_hdr_scene1.avif",
+    "name": "Battlefield 6 - Scene 1",
+    "game": "Battlefield 6",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["FPS", "Native HDR", "AVIF"]
+  },
+  {
+    "filename": "Battlefield6_native_hdr_scene2.avif",
+    "name": "Battlefield 6 - Scene 2",
+    "game": "Battlefield 6",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["FPS", "Native HDR", "AVIF"]
+  },
+  {
+    "filename": "Clair_Obscure_renodx_hdr_scene1.avif",
+    "name": "Clair Obscure: Expedition 33 - Scene 1",
+    "game": "Clair Obscure: Expedition 33",
+    "source": "RenoDX Mod",
+    "type": "renodx",
+    "tags": ["RPG", "RenoDX Mod", "AVIF"]
+  },
+  {
+    "filename": "Clair_Obscure_renodx_hdr_scene2.avif",
+    "name": "Clair Obscure: Expedition 33 - Scene 2",
+    "game": "Clair Obscure: Expedition 33",
+    "source": "RenoDX Mod",
+    "type": "renodx",
+    "tags": ["RPG", "RenoDX Mod", "AVIF"]
+  },
+  {
+    "filename": "Crimson_Desert_native_hdr_scene1.avif",
+    "name": "Crimson Desert - Scene 1",
+    "game": "Crimson Desert",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Action RPG", "Native HDR", "AVIF"]
+  },
+  {
+    "filename": "Crimson_Desert_native_hdr_scene2.avif",
+    "name": "Crimson Desert - Scene 2",
+    "game": "Crimson Desert",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Action RPG", "Native HDR", "AVIF"]
+  },
+  {
+    "filename": "Forza_Horizon_6_native_hdr_scene1.jxr",
+    "name": "Forza Horizon 6 - Scene 1",
+    "game": "Forza Horizon 6",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Racing", "Native HDR", "JXR"]
+  },
+  {
+    "filename": "Forza_Horizon_6_native_hdr_scene2.jxr",
+    "name": "Forza Horizon 6 - Scene 2",
+    "game": "Forza Horizon 6",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Racing", "Native HDR", "JXR"]
+  },
+  {
+    "filename": "Neverness_To_Everness_rtx_hdr_scene1.jxr",
+    "name": "Neverness To Everness - Scene 1",
+    "game": "Neverness To Everness",
+    "source": "RTX HDR",
+    "type": "rtx",
+    "tags": ["Urban Fantasy", "RTX HDR", "JXR"]
+  },
+  {
+    "filename": "Neverness_To_Everness_rtx_hdr_scene2.jxr",
+    "name": "Neverness To Everness - Scene 2",
+    "game": "Neverness To Everness",
+    "source": "RTX HDR",
+    "type": "rtx",
+    "tags": ["Urban Fantasy", "RTX HDR", "JXR"]
+  },
+  {
+    "filename": "Octopath_Traveler_renodx_hdr_scene1.avif",
+    "name": "Octopath Traveler - Scene 1",
+    "game": "Octopath Traveler",
+    "source": "RenoDX Mod",
+    "type": "renodx",
+    "tags": ["HD-2D RPG", "RenoDX Mod", "AVIF"]
+  },
+  {
+    "filename": "Octopath_Traveler_renodx_hdr_scene2.avif",
+    "name": "Octopath Traveler - Scene 2",
+    "game": "Octopath Traveler",
+    "source": "RenoDX Mod",
+    "type": "renodx",
+    "tags": ["HD-2D RPG", "RenoDX Mod", "AVIF"]
+  },
+  {
+    "filename": "Pragmata_native_hdr_scene1.avif",
+    "name": "Pragmata - Scene 1",
+    "game": "Pragmata",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Sci-Fi", "Native HDR", "AVIF"]
+  },
+  {
+    "filename": "Pragmata_native_hdr_scene2.avif",
+    "name": "Pragmata - Scene 2",
+    "game": "Pragmata",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Sci-Fi", "Native HDR", "AVIF"]
+  }
+]

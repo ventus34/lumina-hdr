@@ -6,6 +6,7 @@ import { decodeEXR } from './decoders/exr.js';
 import { decodeJXR } from './decoders/jxr.js';
 import { generateSyntheticHDR } from './synthetic.js';
 import { encodePNG } from './decoders/png-encoder.js';
+import { decodeAVIF } from './decoders/avif.js';
 
 const OPERATOR_DETAILS = {
   0: { // Linear
@@ -118,6 +119,13 @@ const el = {
   // File inputs
   dropzone: document.getElementById('dropzone'),
   fileInput: document.getElementById('file-input'),
+
+  // Example Scenes
+  selectExampleScene: document.getElementById('select-example-scene'),
+  exampleDetails: document.getElementById('example-details'),
+  exampleGameTitle: document.getElementById('example-game-title'),
+  exampleGameDesc: document.getElementById('example-game-desc'),
+  exampleGameTags: document.getElementById('example-game-tags'),
   
   // Metadata
   metaEmpty: document.getElementById('metadata-empty'),
@@ -147,6 +155,8 @@ const el = {
   sliderSdrBoost: document.getElementById('slider-sdr-boost'),
   valSdrBoost: document.getElementById('val-sdr-boost'),
   checkboxSmartUpmix: document.getElementById('checkbox-smart-upmix'),
+  groupSmartUpmix: document.getElementById('group-smart-upmix'),
+  groupSdrBoost: document.getElementById('group-sdr-boost'),
 
   // HDR Calibration controls
   selectSdrWhite: document.getElementById('select-sdr-white'),
@@ -281,6 +291,128 @@ function updateOperatorInfoCard(toneMapperId) {
   el.operatorInfoUsage.textContent = details.usage;
 }
 
+// Example scenes dynamic loading variables and functions
+let exampleScenes = [];
+const EXAMPLES_BASE_PATH = import.meta.env.DEV ? 'docs/examples/' : 'examples/';
+
+async function loadExampleScenesList() {
+  try {
+    const res = await fetch(`${EXAMPLES_BASE_PATH}examples.json`);
+    if (!res.ok) throw new Error('Failed to fetch examples list');
+    exampleScenes = await res.json();
+    populateExamplesDropdown();
+  } catch (err) {
+    console.error('Error loading example scenes:', err);
+    if (el.selectExampleScene) {
+      el.selectExampleScene.innerHTML = '<option value="" disabled selected>Error loading examples</option>';
+    }
+  }
+}
+
+function populateExamplesDropdown() {
+  if (!el.selectExampleScene) return;
+  
+  el.selectExampleScene.innerHTML = '<option value="" disabled selected>Select an example game scene...</option>';
+  
+  exampleScenes.forEach((scene, index) => {
+    const opt = document.createElement('option');
+    opt.value = index;
+    opt.textContent = `${scene.game} - ${scene.name.split(' - ').pop()}`;
+    el.selectExampleScene.appendChild(opt);
+  });
+}
+
+function loadExampleScene(index) {
+  const scene = exampleScenes[index];
+  if (!scene) return;
+
+  if (el.exampleGameTitle) el.exampleGameTitle.textContent = scene.game;
+  if (el.exampleGameDesc) {
+    el.exampleGameDesc.textContent = `Source: ${scene.source} | ${scene.filename.split('_').pop().replace(/\.[^/.]+$/, "")}`;
+  }
+  
+  if (el.exampleGameTags) {
+    el.exampleGameTags.innerHTML = '';
+    scene.tags.forEach(tag => {
+      const pill = document.createElement('span');
+      pill.className = `example-tag tag-${tag.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      pill.textContent = tag;
+      el.exampleGameTags.appendChild(pill);
+    });
+  }
+
+  if (el.exampleDetails) el.exampleDetails.style.display = 'flex';
+
+  const fileUrl = `${EXAMPLES_BASE_PATH}${scene.filename}`;
+  showLoading(`Fetching and decoding example scene: ${scene.name}...`);
+
+  setTimeout(async () => {
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error(`HTTP error fetching example image: ${res.status}`);
+      
+      const arrayBuffer = await res.arrayBuffer();
+      const ext = scene.filename.split('.').pop().toLowerCase();
+      let decoded = null;
+      let formatName = '';
+      let depthName = '32-bit Float';
+      let isHDR = true;
+
+      const blob = new Blob([arrayBuffer], { type: ext === 'avif' ? 'image/avif' : 'image/jxr' });
+
+      if (ext === 'jxr' || ext === 'wdp') {
+        decoded = await decodeJXR(arrayBuffer);
+        formatName = 'JPEG XR (.jxr)';
+        depthName = 'Half/Full Float (HDR)';
+      } else if (ext === 'exr') {
+        decoded = decodeEXR(arrayBuffer);
+        formatName = 'OpenEXR (.exr)';
+      } else if (ext === 'hdr') {
+        decoded = decodeRGBE(arrayBuffer);
+        formatName = 'Radiance HDR (.hdr)';
+      } else if (ext === 'avif') {
+        decoded = await decodeAVIF(arrayBuffer, blob);
+        formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
+        depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
+        isHDR = decoded.isHDR;
+      } else {
+        decoded = await decodeStandardImage(blob);
+        formatName = 'SDR Image (Standard)';
+        depthName = '8-bit Integer (SDR)';
+        isHDR = false;
+      }
+
+      currentImage = {
+        name: scene.filename,
+        width: decoded.width,
+        height: decoded.height,
+        data: decoded.data,
+        isHDR: isHDR,
+        maxLuminance: calculateMaxLuminance(decoded.data)
+      };
+
+      renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
+      updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
+      updateMetadataDisplay();
+
+      toggleSdrExclusiveControls(isHDR);
+      if (isHDR) {
+        renderOptions.sdrBoost = 1.0;
+      } else {
+        showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
+      }
+
+      requestRender();
+      showToast(`Loaded example scene: ${scene.name}`);
+    } catch (err) {
+      showToast(`Error loading example: ${err.message}`, 'error');
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
+  }, 50);
+}
+
 // Initialize Application
 function init() {
   // Set up WebGL2 Renderer
@@ -299,6 +431,7 @@ function init() {
   // Load synthetic HDR by default on startup
   loadSyntheticImage();
   initHdrCapabilityDetection();
+  loadExampleScenesList();
   hideLoading();
 }
 
@@ -715,6 +848,14 @@ function setupEventListeners() {
 
   el.btnBatchClear.addEventListener('click', clearBatch);
   el.btnBatchStart.addEventListener('click', runBatchConversion);
+
+  // Example Scene selector
+  if (el.selectExampleScene) {
+    el.selectExampleScene.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.value, 10);
+      loadExampleScene(idx);
+    });
+  }
 }
 
 // Drag & Drop helper
@@ -886,7 +1027,10 @@ function requestRender() {
       splitY: resolvedSplitY,
       blendOpacity: renderOptions.blendOpacity / 100.0,
       exposure: exposure,
-      toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite
+      toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite,
+      // Override SDR-exclusive options for HDR inputs
+      smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
+      sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost
     };
     renderer.render(options);
     
@@ -907,8 +1051,30 @@ function requestRender() {
   }
 }
 
+// Toggle SDR-exclusive controls visibility and state based on whether the input image is HDR
+function toggleSdrExclusiveControls(isHDR) {
+  if (isHDR) {
+    if (el.groupSmartUpmix) el.groupSmartUpmix.style.display = 'none';
+    if (el.groupSdrBoost) el.groupSdrBoost.style.display = 'none';
+    el.sliderSdrBoost.disabled = true;
+    el.sliderSdrBoost.value = 1.0;
+    el.valSdrBoost.textContent = '1.00x';
+  } else {
+    if (el.groupSmartUpmix) el.groupSmartUpmix.style.display = 'flex';
+    if (el.groupSdrBoost) el.groupSdrBoost.style.display = 'block';
+    el.sliderSdrBoost.disabled = false;
+  }
+}
+
 // Load Synthetic Image (Procedural Test)
 function loadSyntheticImage() {
+  if (el.selectExampleScene) {
+    el.selectExampleScene.selectedIndex = 0;
+  }
+  if (el.exampleDetails) {
+    el.exampleDetails.style.display = 'none';
+  }
+
   showLoading('Generating HDR scene...');
   
   // Run on setTimeout to let UI update
@@ -948,10 +1114,8 @@ function loadSyntheticImage() {
       updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, '32-bit Float', 4);
       updateMetadataDisplay();
       
-      // Reset Boost
-      el.sliderSdrBoost.disabled = true;
-      el.sliderSdrBoost.value = 1.0;
-      el.valSdrBoost.textContent = '1.00x';
+      // Reset and hide SDR-exclusive controls since synthetic images are HDR
+      toggleSdrExclusiveControls(true);
       renderOptions.sdrBoost = 1.0;
 
       requestRender();
@@ -967,6 +1131,13 @@ function loadSyntheticImage() {
 // Parse and Load Single File
 function handleSingleFile(file) {
   if (!file) return;
+
+  if (el.selectExampleScene) {
+    el.selectExampleScene.selectedIndex = 0;
+  }
+  if (el.exampleDetails) {
+    el.exampleDetails.style.display = 'none';
+  }
 
   const ext = file.name.split('.').pop().toLowerCase();
   showLoading(`Loading and decoding .${ext} file...`);
@@ -989,6 +1160,11 @@ function handleSingleFile(file) {
       } else if (ext === 'hdr') {
         decoded = decodeRGBE(arrayBuffer);
         formatName = 'Radiance HDR (.hdr)';
+      } else if (ext === 'avif') {
+        decoded = await decodeAVIF(arrayBuffer, file);
+        formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
+        depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
+        isHDR = decoded.isHDR;
       } else {
         // Standard Web formats (PNG, JPG, WebP)
         decoded = await decodeStandardImage(file);
@@ -1010,14 +1186,11 @@ function handleSingleFile(file) {
       updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
       updateMetadataDisplay();
 
-      // Handle SDR booster control
+      // Handle SDR-exclusive controls visibility and state
+      toggleSdrExclusiveControls(isHDR);
       if (isHDR) {
-        el.sliderSdrBoost.disabled = true;
-        el.sliderSdrBoost.value = 1.0;
-        el.valSdrBoost.textContent = '1.00x';
         renderOptions.sdrBoost = 1.0;
       } else {
-        el.sliderSdrBoost.disabled = false;
         showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
       }
 
@@ -1388,8 +1561,8 @@ function updatePixelHUD(mouseData) {
         renderOptions.targetPeak,
         renderOptions.autoExposureCorrect,
         {
-          sdrBoost: renderOptions.sdrBoost,
-          smartUpmix: renderOptions.smartUpmix,
+          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
+          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
           saturation: renderOptions.saturation,
           highlights: renderOptions.highlights,
           shadows: renderOptions.shadows,
@@ -1399,8 +1572,14 @@ function updatePixelHUD(mouseData) {
       );
     }
 
+    const resolvedOptions = {
+      ...renderOptions,
+      sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
+      smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix
+    };
+
     if (isSdrSide === false) {
-      nits = calculateHdrNits(r, g, b, renderOptions);
+      nits = calculateHdrNits(r, g, b, resolvedOptions);
       const mapped = cachedHdrToneMapper(r, g, b);
       finalR = mapped[0];
       finalG = mapped[1];
@@ -1408,7 +1587,7 @@ function updatePixelHUD(mouseData) {
     } else {
       // Blend mode (isSdrSide === null)
       const sdrNits = Math.max(0.0, (0.2126 * r + 0.7152 * g + 0.0722 * b) * renderOptions.sdrWhite);
-      const hdrNits = calculateHdrNits(r, g, b, renderOptions);
+      const hdrNits = calculateHdrNits(r, g, b, resolvedOptions);
       const opacity = renderOptions.blendOpacity / 100.0;
 
       nits = sdrNits + (hdrNits - sdrNits) * opacity;
@@ -1826,8 +2005,8 @@ function exportImage() {
             renderOptions.targetPeak,
             renderOptions.autoExposureCorrect,
             {
-              sdrBoost: renderOptions.sdrBoost,
-              smartUpmix: renderOptions.smartUpmix,
+              sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
+              smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
               saturation: renderOptions.saturation,
               highlights: renderOptions.highlights,
               shadows: renderOptions.shadows,
@@ -1848,11 +2027,11 @@ function exportImage() {
           transfer: transfer,
           exposure: resolvedExposure,
           contrast: renderOptions.contrast,
-          sdrBoost: renderOptions.sdrBoost,
+          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
           sdrWhite: renderOptions.sdrWhite,
           maxLuminance: currentImage.maxLuminance,
           toneMapperFunc: toneMapperFunc,
-          smartUpmix: renderOptions.smartUpmix,
+          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
           saturation: renderOptions.saturation,
           highlights: renderOptions.highlights,
           shadows: renderOptions.shadows,
@@ -1898,7 +2077,9 @@ function exportImage() {
           clippingWarning: false,
           nativeHdr: false, // Ensure standard tone-mapped SDR output
           exposure: exposure,
-          toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite
+          toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite,
+          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
+          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost
         };
         
         // Temporarily reset pan and zoom for export to capture the whole image
@@ -1985,7 +2166,7 @@ function addBatchFiles(files) {
     const ext = file.name.split('.').pop().toLowerCase();
     
     // Validate extensions
-    if (['jxr', 'wdp', 'exr', 'hdr'].includes(ext)) {
+    if (['jxr', 'wdp', 'exr', 'hdr', 'avif'].includes(ext)) {
       // Avoid duplicates
       if (!batchFiles.some(bf => bf.file.name === file.name && bf.file.size === file.size)) {
         batchFiles.push({
@@ -2119,9 +2300,13 @@ async function runBatchConversion() {
         decoded = decodeEXR(buffer);
       } else if (ext === 'hdr') {
         decoded = decodeRGBE(buffer);
+      } else if (ext === 'avif') {
+        decoded = await decodeAVIF(buffer, item.file);
       } else {
         throw new Error('Unsupported format');
       }
+
+      const fileIsHdr = decoded.isHDR !== false;
 
       // 2. Encode
       const filename = item.file.name.replace(/\.[^/.]+$/, ""); // strip extension
@@ -2153,8 +2338,8 @@ async function runBatchConversion() {
             targetPeak,
             autoExposureCorrect,
             {
-              sdrBoost: renderOptions.sdrBoost,
-              smartUpmix: renderOptions.smartUpmix,
+              sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
+              smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
               saturation: renderOptions.saturation,
               highlights: renderOptions.highlights,
               shadows: renderOptions.shadows,
@@ -2176,11 +2361,11 @@ async function runBatchConversion() {
           transfer: transfer,
           exposure: resolvedExposure,
           contrast: contrast,
-          sdrBoost: renderOptions.sdrBoost,
+          sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
           sdrWhite: sdrWhite,
           maxLuminance: maxLuminance,
           toneMapperFunc: toneMapperFunc,
-          smartUpmix: renderOptions.smartUpmix,
+          smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
           saturation: renderOptions.saturation,
           highlights: renderOptions.highlights,
           shadows: renderOptions.shadows,
@@ -2203,8 +2388,8 @@ async function runBatchConversion() {
           targetPeak,
           autoExposureCorrect,
           {
-            sdrBoost: renderOptions.sdrBoost,
-            smartUpmix: renderOptions.smartUpmix,
+            sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
+            smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
             saturation: renderOptions.saturation,
             highlights: renderOptions.highlights,
             shadows: renderOptions.shadows,

@@ -2,14 +2,14 @@
 
 https://ventus34.github.io/lumina-hdr/
 
-Lumina HDR is a feature-rich, client-side web application designed for viewing, calibrating, tone mapping, and batch-converting HDR screenshots and images (including JXR, EXR, and Radiance HDR). It provides interactive tools to preview high-dynamic-range content and export it to modern formats (like high-precision HDR/SDR PNGs) with precise control. Made with Antigravity (and Gemini 3.5 Flash) to solve problem of viewing JXR HDR screenshots from Xbox app in Discord/MacOS.
+Lumina HDR is a feature-rich, client-side web application designed for viewing, calibrating, tone mapping, and batch-converting HDR screenshots and images (including JXR, AVIF, EXR, and Radiance HDR). It provides interactive tools to preview high-dynamic-range content and export it to modern formats (like high-precision HDR/SDR PNGs) with precise control. Made with Antigravity (and Gemini 3.5 Flash) to solve the problem of viewing JXR HDR screenshots from the Xbox app and AVIF HDR screenshots from Steam in Discord/macOS.
 
 ---
 
 ## 🌟 Key Features
 
 ### 1. Interactive Preview & Calibration
-* **Multi-Format Loader:** Drag-and-drop or select HDR files (`.jxr`, `.exr`, `.hdr`) as well as standard SDR images (`.png`, `.jpg`, `.webp`).
+* **Multi-Format Loader:** Drag-and-drop or select HDR files like `.jxr`, `.avif` (such as Steam HDR screenshots), `.exr`, and `.hdr` as well as standard SDR images (`.png`, `.jpg`, `.webp`, `.avif`).
 * **Comparison Slider:** Compare the processed HDR output with standard SDR (clamped) using multiple layout modes:
   * Vertical Split-screen
   * Horizontal Split-screen
@@ -29,7 +29,7 @@ Lumina HDR is a feature-rich, client-side web application designed for viewing, 
 * **HDR Monitor Mode (Experimental):** Renders the preview using the browser's native HDR capabilities (requires HDR monitor, OS support, and enabling experimental Web Platform features in Chrome).
 
 ### 3. Batch Converter
-* **Queue Processing:** Drop multiple files (`.jxr`, `.exr`, `.hdr`) into the queue.
+* **Queue Processing:** Drop multiple files (`.jxr`, `.avif`, `.exr`, or `.hdr`) into the queue.
 * **Bulk Settings:** Apply tone mapping presets and configuration across all images.
 * **Zip Export:** Automatically processes all images in the queue and packs them into a single, downloadable `.zip` file directly on the client.
 
@@ -98,12 +98,19 @@ We would like to acknowledge the following libraries, formats, and individuals w
 
 * **Radiance HDR (.hdr / RGBE) Format:** Developed by Greg Ward. The encoder and decoder in `src/decoders/rgbe.js` are custom pure-JavaScript implementations of this format.
 * **JPEG XR Reference Software (`jxrlib`):** Maintained by Microsoft and the JPEG committee. Distributed under a BSD-like license, which is compiled to WASM in our loader.
+* **Native Browser HDR AVIF Decoding:** Employs native browser image rendering onto an offscreen Canvas `rec2100-pq` + `float16` context. This extracts high-precision BT.2100 PQ/HLG color data natively, enabling direct support for uncompressed Steam HDR screenshots (`.avif`) without heavy external WASM decoders.
 * **Tone Mapping Operators:**
   * **ACES Filmic:** Academy Color Encoding System, with WebGL implementation formulas inspired by Stephen Hill and Krzysztof Narkowicz.
   * **Hable (Uncharted 2 Curve):** Designed by John Hable.
   * **Lottes:** Designed by Timothy Lottes.
   * **Uchimura (GT Tone Mapper):** Designed by Hajime Uchimura (Gran Turismo Sport / SEG).
   * **Reinhard:** Developed by Erik Reinhard.
+
+---
+
+## ⚠️ Screenshot Disclaimer
+
+All game screenshots, titles, and related assets included in the `docs/examples/` directory are trademarks and copyrights of their respective owners. They are used in this project strictly for non-commercial, educational, and demonstration purposes under Fair Use guidelines. No copyright infringement is intended.
 
 ---
 
