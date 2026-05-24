@@ -286,6 +286,27 @@ void main() {
   vec2 uv = (effective_v_uv - vec2(0.5)) / aspect_scale;
   uv = uv / u_zoom + vec2(0.5) - u_pan;
 
+  // 6. Draw comparison split lines (independent of image bounds)
+  bool isSplitLine = false;
+  if (u_comparison_mode == 0 && u_split_x > 0.0 && u_split_x < 1.0) {
+    isSplitLine = (abs(v_uv.x - u_split_x) < 0.002);
+  } else if (u_comparison_mode == 1 && u_split_y > 0.0 && u_split_y < 1.0) {
+    isSplitLine = (abs(v_uv.y - u_split_y) < 0.002);
+  } else if (u_comparison_mode == 2) {
+    isSplitLine = (abs(v_uv.x - 0.5) < 0.002);
+  }
+
+  if (isSplitLine) {
+    if (u_native_hdr == 1) {
+      vec3 cyanColor = vec3(0.0, 0.9, 1.0) * u_sdr_white;
+      vec3 cyan2020 = RGB709to2020 * cyanColor;
+      fragColor = vec4(linearToPQ(cyan2020), 1.0);
+    } else {
+      fragColor = vec4(0.0, 0.9, 1.0, 1.0); // Vibrant neon cyan line
+    }
+    return;
+  }
+
   // 2. Draw Checkerboard background if out of bounds
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
     vec2 grid = floor(gl_FragCoord.xy / 16.0);
@@ -349,27 +370,7 @@ void main() {
     }
   }
 
-  // 6. Draw comparison split lines
-  bool isSplitLine = false;
-  if (u_comparison_mode == 0 && u_split_x > 0.0 && u_split_x < 1.0) {
-    isSplitLine = (abs(v_uv.x - u_split_x) < 0.002);
-  } else if (u_comparison_mode == 1 && u_split_y > 0.0 && u_split_y < 1.0) {
-    isSplitLine = (abs(v_uv.y - u_split_y) < 0.002);
-  } else if (u_comparison_mode == 2) {
-    isSplitLine = (abs(v_uv.x - 0.5) < 0.002);
-  }
-
-  if (isSplitLine) {
-    if (u_native_hdr == 1) {
-      vec3 cyanColor = vec3(0.0, 0.9, 1.0) * u_sdr_white;
-      vec3 cyan2020 = RGB709to2020 * cyanColor;
-      fragColor = vec4(linearToPQ(cyan2020), 1.0);
-    } else {
-      fragColor = vec4(0.0, 0.9, 1.0, 1.0); // Vibrant neon cyan line
-    }
-  } else {
-    fragColor = vec4(processedColor, texel.a);
-  }
+  fragColor = vec4(processedColor, texel.a);
 }
 `;
 

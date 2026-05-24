@@ -79,7 +79,7 @@ const renderOptions = {
   activeSplitY: 0.5,   // Default: Middle split
   sdrWhite: 200.0,      // Default SDR Reference White: 200 nits
   targetPeak: 1000.0,   // Default Target Peak: 1000 nits
-  autoExposureCorrect: true,
+  autoExposureCorrect: false,
   previewMode: 'split',
   nativeHdr: false,
   blendOpacity: 50.0,   // Default: 50%
@@ -106,6 +106,13 @@ let startMouseY = 0;
 // Batch files queue
 let batchFiles = [];
 let isBatchProcessing = false;
+
+// Gallery state
+let galleryFiles = [];
+let galleryIndex = -1;
+let galleryThumbnails = [];
+let galleryDecodingQueue = [];
+let isProcessingGalleryQueue = false;
 
 // DOM Elements
 const el = {
@@ -243,7 +250,20 @@ const el = {
   batchProgressPercent: document.getElementById('batch-progress-percent'),
   batchProgressBar: document.getElementById('batch-progress-bar'),
   btnBatchClear: document.getElementById('btn-batch-clear'),
-  btnBatchStart: document.getElementById('btn-batch-start')
+  btnBatchStart: document.getElementById('btn-batch-start'),
+  
+  // Gallery elements
+  galleryBar: document.getElementById('gallery-bar'),
+  galleryCount: document.getElementById('gallery-count'),
+  galleryTrack: document.getElementById('gallery-track'),
+  btnGalleryPrev: document.getElementById('btn-gallery-prev'),
+  btnGalleryNext: document.getElementById('btn-gallery-next'),
+  btnGalleryClose: document.getElementById('btn-gallery-close'),
+  btnSelectFiles: document.getElementById('btn-select-files'),
+  btnSelectFolder: document.getElementById('btn-select-folder'),
+  btnToggleGallery: document.getElementById('btn-toggle-gallery'),
+  folderInput: document.getElementById('folder-input'),
+  viewportContainer: document.querySelector('.viewport-container')
 };
 
 // HDR Calibration helpers
@@ -537,11 +557,134 @@ function setupEventListeners() {
   // Synthetic Button
   el.btnSynthetic.addEventListener('click', loadSyntheticImage);
 
-  // File Upload (Single Viewer)
+  // File Upload (Single Viewer / Multiple Gallery / Folder)
   el.dropzone.addEventListener('click', () => el.fileInput.click());
-  el.fileInput.addEventListener('change', (e) => handleSingleFile(e.target.files[0]));
-  
-  setupDragAndDrop(el.dropzone, (file) => handleSingleFile(file));
+  el.fileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 1) {
+      handleSingleFile(files[0]);
+    } else if (files.length > 1) {
+      handleMultipleFiles(files);
+    }
+  });
+
+  el.btnSelectFiles.addEventListener('click', () => el.fileInput.click());
+  el.btnSelectFolder.addEventListener('click', () => el.folderInput.click());
+  el.folderInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      handleMultipleFiles(files);
+    }
+  });
+
+  el.btnToggleGallery.addEventListener('click', () => {
+    if (el.galleryBar) {
+      const isHidden = el.galleryBar.style.display === 'none';
+      el.galleryBar.style.display = isHidden ? 'flex' : 'none';
+      if (el.viewportContainer) {
+        if (isHidden) {
+          el.viewportContainer.classList.add('gallery-open');
+        } else {
+          el.viewportContainer.classList.remove('gallery-open');
+        }
+      }
+      if (isHidden && galleryIndex >= 0) {
+        setTimeout(() => {
+          const activeItem = el.galleryTrack.querySelector('.gallery-thumb-item.active');
+          if (activeItem) {
+            activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        }, 50);
+      }
+      requestRender();
+    }
+  });
+
+  // Gallery Navigation & Control Actions
+  el.btnGalleryPrev.addEventListener('click', () => navigateGallery(-1));
+  el.btnGalleryNext.addEventListener('click', () => navigateGallery(1));
+  el.btnGalleryClose.addEventListener('click', () => {
+    if (el.galleryBar) el.galleryBar.style.display = 'none';
+    if (el.viewportContainer) el.viewportContainer.classList.remove('gallery-open');
+    requestRender();
+  });
+
+  // Drag and Drop folder entry traversal
+  el.dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    el.dropzone.classList.add('dragover');
+  });
+
+  el.dropzone.addEventListener('dragleave', () => {
+    el.dropzone.classList.remove('dragover');
+  });
+
+  el.dropzone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    el.dropzone.classList.remove('dragover');
+
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      const entries = [];
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file') {
+          const entry = item.webkitGetAsEntry();
+          if (entry) entries.push(entry);
+        }
+      }
+
+      if (entries.length > 0) {
+        showLoading('Reading folder contents...');
+        try {
+          const files = await getAllFilesFromEntries(entries);
+          if (files.length === 1) {
+            handleSingleFile(files[0]);
+          } else if (files.length > 1) {
+            await handleMultipleFiles(files);
+          } else {
+            showToast('No files found.', 'warning');
+            hideLoading();
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Failed to read folder contents.', 'error');
+          hideLoading();
+        }
+        return;
+      }
+    }
+
+    if (e.dataTransfer.files.length > 0) {
+      if (e.dataTransfer.files.length === 1) {
+        handleSingleFile(e.dataTransfer.files[0]);
+      } else {
+        handleMultipleFiles(Array.from(e.dataTransfer.files));
+      }
+    }
+  });
+
+  // Keyboard Arrow Key Navigation
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement.tagName === 'INPUT' && document.activeElement.type !== 'range') {
+      return;
+    }
+    if (document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA') {
+      return;
+    }
+    if (document.activeElement.type === 'range') {
+      return;
+    }
+
+    if (galleryFiles.length > 1 && el.galleryBar && el.galleryBar.style.display !== 'none') {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateGallery(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateGallery(1);
+      }
+    }
+  });
 
   // Controls (Sliders & Selector)
   el.selectOperator.addEventListener('change', (e) => {
@@ -933,26 +1076,29 @@ function updateViewportLabels() {
   const details = OPERATOR_DETAILS[renderOptions.toneMapper];
   const operatorName = details ? details.name : 'HDR';
 
+  const isGalleryOpen = el.galleryBar && el.galleryBar.style.display !== 'none';
+  const labelTop = isGalleryOpen ? '130px' : '20px';
+
   if (mode === 'split') {
     el.viewportLabelLeft.textContent = 'SDR (Clamped)';
     el.viewportLabelLeft.style.display = 'block';
     el.viewportLabelLeft.style.left = '20px';
     el.viewportLabelLeft.style.right = 'auto';
-    el.viewportLabelLeft.style.top = '20px';
+    el.viewportLabelLeft.style.top = labelTop;
     el.viewportLabelLeft.style.bottom = 'auto';
 
     el.viewportLabelRight.textContent = `HDR (${operatorName})`;
     el.viewportLabelRight.style.display = 'block';
     el.viewportLabelRight.style.left = 'auto';
     el.viewportLabelRight.style.right = '20px';
-    el.viewportLabelRight.style.top = '20px';
+    el.viewportLabelRight.style.top = labelTop;
     el.viewportLabelRight.style.bottom = 'auto';
   } else if (mode === 'split-h') {
     el.viewportLabelLeft.textContent = 'SDR (Clamped)';
     el.viewportLabelLeft.style.display = 'block';
     el.viewportLabelLeft.style.left = '20px';
     el.viewportLabelLeft.style.right = 'auto';
-    el.viewportLabelLeft.style.top = '20px';
+    el.viewportLabelLeft.style.top = labelTop;
     el.viewportLabelLeft.style.bottom = 'auto';
 
     el.viewportLabelRight.textContent = `HDR (${operatorName})`;
@@ -966,14 +1112,14 @@ function updateViewportLabels() {
     el.viewportLabelLeft.style.display = 'block';
     el.viewportLabelLeft.style.left = '20px';
     el.viewportLabelLeft.style.right = 'auto';
-    el.viewportLabelLeft.style.top = '20px';
+    el.viewportLabelLeft.style.top = labelTop;
     el.viewportLabelLeft.style.bottom = 'auto';
 
     el.viewportLabelRight.textContent = `HDR (${operatorName})`;
     el.viewportLabelRight.style.display = 'block';
     el.viewportLabelRight.style.left = 'auto';
     el.viewportLabelRight.style.right = '20px';
-    el.viewportLabelRight.style.top = '20px';
+    el.viewportLabelRight.style.top = labelTop;
     el.viewportLabelRight.style.bottom = 'auto';
   } else if (mode === 'blend') {
     const hdrPct = renderOptions.blendOpacity;
@@ -982,14 +1128,14 @@ function updateViewportLabels() {
     el.viewportLabelLeft.style.display = 'block';
     el.viewportLabelLeft.style.left = '20px';
     el.viewportLabelLeft.style.right = 'auto';
-    el.viewportLabelLeft.style.top = '20px';
+    el.viewportLabelLeft.style.top = labelTop;
     el.viewportLabelLeft.style.bottom = 'auto';
 
     el.viewportLabelRight.textContent = `HDR (${operatorName}) (${hdrPct}%)`;
     el.viewportLabelRight.style.display = 'block';
     el.viewportLabelRight.style.left = 'auto';
     el.viewportLabelRight.style.right = '20px';
-    el.viewportLabelRight.style.top = '20px';
+    el.viewportLabelRight.style.top = labelTop;
     el.viewportLabelRight.style.bottom = 'auto';
   } else if (mode === 'hdr') {
     el.viewportLabelLeft.style.display = 'none';
@@ -998,14 +1144,14 @@ function updateViewportLabels() {
     el.viewportLabelRight.style.display = 'block';
     el.viewportLabelRight.style.left = '20px';
     el.viewportLabelRight.style.right = 'auto';
-    el.viewportLabelRight.style.top = '20px';
+    el.viewportLabelRight.style.top = labelTop;
     el.viewportLabelRight.style.bottom = 'auto';
   } else if (mode === 'sdr') {
     el.viewportLabelLeft.textContent = 'SDR (Clamped)';
     el.viewportLabelLeft.style.display = 'block';
     el.viewportLabelLeft.style.left = '20px';
     el.viewportLabelLeft.style.right = 'auto';
-    el.viewportLabelLeft.style.top = '20px';
+    el.viewportLabelLeft.style.top = labelTop;
     el.viewportLabelLeft.style.bottom = 'auto';
 
     el.viewportLabelRight.style.display = 'none';
@@ -1138,6 +1284,88 @@ function loadSyntheticImage() {
   }, 50);
 }
 
+// Decode, parse, and load a file into the active viewer
+async function decodeAndLoadFile(file, loadingLabel = null) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  showLoading(loadingLabel || `Loading and decoding .${ext} file...`);
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    let decoded = null;
+    let formatName = '';
+    let depthName = '32-bit Float';
+    let isHDR = true;
+
+    if (ext === 'jxr' || ext === 'wdp') {
+      decoded = await decodeJXR(arrayBuffer);
+      formatName = 'JPEG XR (.jxr)';
+      depthName = 'Half/Full Float (HDR)';
+    } else if (ext === 'exr') {
+      decoded = decodeEXR(arrayBuffer);
+      formatName = 'OpenEXR (.exr)';
+    } else if (ext === 'hdr') {
+      decoded = decodeRGBE(arrayBuffer);
+      formatName = 'Radiance HDR (.hdr)';
+    } else if (ext === 'avif') {
+      decoded = await decodeAVIF(arrayBuffer, file);
+      formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
+      depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
+      isHDR = decoded.isHDR;
+    } else {
+      // Standard Web formats (PNG, JPG, WebP)
+      decoded = await decodeStandardImage(file);
+      formatName = 'SDR Image (Standard)';
+      depthName = '8-bit Integer (SDR)';
+      isHDR = false;
+    }
+
+    currentImage = {
+      name: file.name,
+      width: decoded.width,
+      height: decoded.height,
+      data: decoded.data,
+      isHDR: isHDR,
+      maxLuminance: calculateMaxLuminance(decoded.data)
+    };
+
+    renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
+    updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
+    updateMetadataDisplay();
+
+    // Handle SDR-exclusive controls visibility and state
+    toggleSdrExclusiveControls(isHDR);
+    if (isHDR) {
+      renderOptions.sdrBoost = 1.0;
+    } else {
+      showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
+    }
+
+    requestRender();
+    showToast(`Loaded file: ${file.name}`);
+    return true;
+  } catch (err) {
+    showToast(`Error loading: ${err.message}`, 'error');
+    console.error(err);
+    return false;
+  } finally {
+    hideLoading();
+  }
+}
+
+// Clear current gallery state and revoke any cached URLs to prevent leaks
+function clearGalleryState() {
+  galleryThumbnails.forEach(url => {
+    if (url && url.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
+    }
+  });
+  galleryFiles = [];
+  galleryIndex = -1;
+  galleryThumbnails = [];
+  galleryDecodingQueue = [];
+  isProcessingGalleryQueue = false;
+}
+
 // Parse and Load Single File
 function handleSingleFile(file) {
   if (!file) return;
@@ -1149,70 +1377,220 @@ function handleSingleFile(file) {
     el.exampleDetails.style.display = 'none';
   }
 
-  const ext = file.name.split('.').pop().toLowerCase();
-  showLoading(`Loading and decoding .${ext} file...`);
+  // Clear gallery state and hide gallery bar
+  clearGalleryState();
+  if (el.galleryBar) el.galleryBar.style.display = 'none';
+  if (el.btnToggleGallery) el.btnToggleGallery.style.display = 'none';
+  if (el.viewportContainer) el.viewportContainer.classList.remove('gallery-open');
 
-  setTimeout(async () => {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      let decoded = null;
-      let formatName = '';
-      let depthName = '32-bit Float';
-      let isHDR = true;
-
-      if (ext === 'jxr' || ext === 'wdp') {
-        decoded = await decodeJXR(arrayBuffer);
-        formatName = 'JPEG XR (.jxr)';
-        depthName = 'Half/Full Float (HDR)';
-      } else if (ext === 'exr') {
-        decoded = decodeEXR(arrayBuffer);
-        formatName = 'OpenEXR (.exr)';
-      } else if (ext === 'hdr') {
-        decoded = decodeRGBE(arrayBuffer);
-        formatName = 'Radiance HDR (.hdr)';
-      } else if (ext === 'avif') {
-        decoded = await decodeAVIF(arrayBuffer, file);
-        formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
-        depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
-        isHDR = decoded.isHDR;
-      } else {
-        // Standard Web formats (PNG, JPG, WebP)
-        decoded = await decodeStandardImage(file);
-        formatName = 'SDR Image (Standard)';
-        depthName = '8-bit Integer (SDR)';
-        isHDR = false;
-      }
-
-      currentImage = {
-        name: file.name,
-        width: decoded.width,
-        height: decoded.height,
-        data: decoded.data,
-        isHDR: isHDR,
-        maxLuminance: calculateMaxLuminance(decoded.data)
-      };
-
-      renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
-      updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
-      updateMetadataDisplay();
-
-      // Handle SDR-exclusive controls visibility and state
-      toggleSdrExclusiveControls(isHDR);
-      if (isHDR) {
-        renderOptions.sdrBoost = 1.0;
-      } else {
-        showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
-      }
-
-      requestRender();
-      showToast(`Loaded file: ${file.name}`);
-    } catch (err) {
-      showToast(`Error loading: ${err.message}`, 'error');
-      console.error(err);
-    } finally {
-      hideLoading();
-    }
+  setTimeout(() => {
+    decodeAndLoadFile(file);
   }, 50);
+}
+
+// Traverse directories recursively to find files
+async function getAllFilesFromEntries(entries) {
+  const fileList = [];
+  const maxFiles = 300;
+  let limitReached = false;
+
+  const traverse = async (entry) => {
+    if (limitReached) return;
+
+    if (entry.isFile) {
+      if (fileList.length >= maxFiles) {
+        limitReached = true;
+        return;
+      }
+      try {
+        const file = await new Promise((resolve, reject) => {
+          entry.file(resolve, reject);
+        });
+        fileList.push(file);
+      } catch (fileErr) {
+        console.error(`Failed to read file ${entry.name}:`, fileErr);
+      }
+    } else if (entry.isDirectory) {
+      // Ignore heavy dependencies and configuration folders
+      const ignoreDirs = ['node_modules', '.git', 'dist', 'build', '.github', '.gemini', 'node_modules_cached'];
+      if (ignoreDirs.includes(entry.name) || entry.name.startsWith('.')) {
+        return;
+      }
+
+      const dirReader = entry.createReader();
+      const readEntries = () => new Promise((resolve, reject) => {
+        dirReader.readEntries(resolve, reject);
+      });
+
+      try {
+        let dirEntries = await readEntries();
+        while (dirEntries.length > 0 && !limitReached) {
+          for (const childEntry of dirEntries) {
+            try {
+              await traverse(childEntry);
+            } catch (traverseErr) {
+              console.error(`Error traversing ${childEntry.name}:`, traverseErr);
+            }
+            if (limitReached) break;
+          }
+          dirEntries = await readEntries();
+        }
+      } catch (err) {
+        console.error(`Failed to read directory ${entry.name}:`, err);
+        if (window.location.protocol === 'file:') {
+          showToast(`Browser blocked directory access. Use a local server (npm run dev) instead of file://.`, 'error');
+        }
+      }
+    }
+  };
+
+  for (const entry of entries) {
+    if (limitReached) break;
+    await traverse(entry);
+  }
+
+  if (limitReached) {
+    showToast(`Directory scan limited to the first ${maxFiles} files for safety.`, 'warning');
+  }
+
+  return fileList;
+}
+
+// Handle multiple files loaded into the gallery
+async function handleMultipleFiles(files) {
+  const supportedExtensions = ['jxr', 'wdp', 'exr', 'hdr', 'avif', 'png', 'jpg', 'jpeg', 'webp'];
+  const imageFiles = files.filter(file => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    return supportedExtensions.includes(ext);
+  });
+
+  if (imageFiles.length === 0) {
+    showToast('No supported image files found in selection.', 'error');
+    return;
+  }
+
+  clearGalleryState();
+
+  galleryFiles = imageFiles;
+  galleryIndex = 0;
+  galleryThumbnails = new Array(galleryFiles.length).fill(null);
+
+  if (el.galleryBar) {
+    el.galleryBar.style.display = 'flex';
+  }
+  if (el.btnToggleGallery) {
+    el.btnToggleGallery.style.display = 'inline-flex';
+  }
+  if (el.galleryCount) {
+    el.galleryCount.textContent = `${galleryFiles.length} file${galleryFiles.length > 1 ? 's' : ''}`;
+  }
+  if (el.viewportContainer) {
+    el.viewportContainer.classList.add('gallery-open');
+  }
+
+  renderGalleryThumbnailsUI();
+  loadGalleryImage(0);
+}
+
+// Build UI elements for thumbnails track
+function renderGalleryThumbnailsUI() {
+  if (!el.galleryTrack) return;
+  el.galleryTrack.innerHTML = '';
+  
+  galleryFiles.forEach((file, index) => {
+    const item = document.createElement('div');
+    item.className = 'gallery-thumb-item';
+    if (index === galleryIndex) item.classList.add('active');
+    item.dataset.index = index;
+
+    const imgWrapper = document.createElement('div');
+    imgWrapper.className = 'gallery-thumb-img-wrapper';
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    const nativeFormats = ['png', 'jpg', 'jpeg', 'webp', 'avif'];
+
+    if (nativeFormats.includes(ext)) {
+      // Native browser formats: render standard image instantly using object URL
+      const img = document.createElement('img');
+      img.className = 'gallery-thumb-img';
+      
+      let url = galleryThumbnails[index];
+      if (!url) {
+        url = URL.createObjectURL(file);
+        galleryThumbnails[index] = url;
+      }
+      img.src = url;
+      imgWrapper.appendChild(img);
+    } else {
+      // Non-native HDR formats: render a beautiful glassmorphic placeholder card
+      const placeholder = document.createElement('div');
+      placeholder.className = 'gallery-thumb-placeholder';
+
+      placeholder.innerHTML = `
+        <svg class="gallery-thumb-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
+          <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+        </svg>
+        <span class="gallery-thumb-badge ext-${ext}">${ext}</span>
+      `;
+      imgWrapper.appendChild(placeholder);
+    }
+
+    const name = document.createElement('div');
+    name.className = 'gallery-thumb-name';
+    name.textContent = file.name;
+    name.title = file.name;
+
+    item.appendChild(imgWrapper);
+    item.appendChild(name);
+
+    item.addEventListener('click', () => {
+      if (galleryIndex !== index) {
+        loadGalleryImage(index);
+      }
+    });
+
+    el.galleryTrack.appendChild(item);
+  });
+}
+
+// Load specific image from gallery
+function loadGalleryImage(index) {
+  if (index < 0 || index >= galleryFiles.length) return;
+
+  const items = el.galleryTrack.querySelectorAll('.gallery-thumb-item');
+  items.forEach((item, i) => {
+    if (i === index) {
+      item.classList.add('active');
+      item.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    } else {
+      item.classList.remove('active');
+    }
+  });
+
+  galleryIndex = index;
+  const file = galleryFiles[index];
+
+  if (el.selectExampleScene) {
+    el.selectExampleScene.selectedIndex = 0;
+  }
+  if (el.exampleDetails) {
+    el.exampleDetails.style.display = 'none';
+  }
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  setTimeout(() => {
+    decodeAndLoadFile(file, `Loading and decoding .${ext} file (${index + 1}/${galleryFiles.length})...`);
+  }, 50);
+}
+
+// Navigate gallery prev/next
+function navigateGallery(direction) {
+  if (galleryFiles.length <= 1) return;
+  let nextIndex = galleryIndex + direction;
+  if (nextIndex < 0) nextIndex = galleryFiles.length - 1;
+  if (nextIndex >= galleryFiles.length) nextIndex = 0;
+  loadGalleryImage(nextIndex);
 }
 
 // Decode standard SDR formats using HTML Image + Canvas 2D
@@ -1314,7 +1692,7 @@ function onMouseMove(e) {
     const factorY = (2.0 / renderer.zoom) * (currentImage.height / rect.height);
 
     renderer.panX = startPanX + (dx / rect.width) * factorX;
-    renderer.panY = startPanY - (dy / rect.height) * factorY; // webgl y starts from bottom
+    renderer.panY = startPanY + (dy / rect.height) * factorY; // webgl y starts from bottom
     requestRender();
   } else {
     // Set dynamic cursor on hover
