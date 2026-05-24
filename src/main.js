@@ -328,7 +328,17 @@ function loadExampleScene(index) {
 
   if (el.exampleGameTitle) el.exampleGameTitle.textContent = scene.game;
   if (el.exampleGameDesc) {
-    el.exampleGameDesc.textContent = `Source: ${scene.source} | ${scene.filename.split('_').pop().replace(/\.[^/.]+$/, "")}`;
+    let descText = "";
+    if (scene.type === 'native') {
+      descText = "Native HDR Support";
+    } else if (scene.type === 'renodx') {
+      descText = "HDR enabled via RenoDX Mod";
+    } else if (scene.type === 'rtx') {
+      descText = "HDR added via NVIDIA RTX HDR";
+    } else {
+      descText = `Source: ${scene.source}`;
+    }
+    el.exampleGameDesc.textContent = descText;
   }
   
   if (el.exampleGameTags) {
