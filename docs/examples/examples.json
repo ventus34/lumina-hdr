@@ -64,6 +64,30 @@
     "tags": ["Racing", "Native HDR", "JXR"]
   },
   {
+    "filename": "Ghost_of_Tsushima_native_hdr_scene1.jxr",
+    "name": "Ghost of Tsushima - Scene 1",
+    "game": "Ghost of Tsushima",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Action Adventure", "Native HDR", "JXR"]
+  },
+  {
+    "filename": "Ghost_of_Tsushima_native_hdr_scene2.jxr",
+    "name": "Ghost of Tsushima - Scene 2",
+    "game": "Ghost of Tsushima",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Action Adventure", "Native HDR", "JXR"]
+  },
+  {
+    "filename": "Ghost_of_Tsushima_native_hdr_scene3.jxr",
+    "name": "Ghost of Tsushima - Scene 3",
+    "game": "Ghost of Tsushima",
+    "source": "Native HDR",
+    "type": "native",
+    "tags": ["Action Adventure", "Native HDR", "JXR"]
+  },
+  {
     "filename": "Neverness_To_Everness_rtx_hdr_scene1.jxr",
     "name": "Neverness To Everness - Scene 1",
     "game": "Neverness To Everness",
