@@ -1,4 +1,3 @@
-import JSZip from 'jszip';
 import './main.css';
 import { WebGLRenderer } from './renderer.js';
 import { decodeRGBE, encodeRGBE } from './decoders/rgbe.js';
@@ -103,10 +102,6 @@ let startPanY = 0;
 let startMouseX = 0;
 let startMouseY = 0;
 
-// Batch files queue
-let batchFiles = [];
-let isBatchProcessing = false;
-
 // Gallery state
 let galleryFiles = [];
 let galleryIndex = -1;
@@ -116,10 +111,6 @@ let isProcessingGalleryQueue = false;
 
 // DOM Elements
 const el = {
-  tabViewer: document.getElementById('tab-viewer'),
-  tabBatch: document.getElementById('tab-batch'),
-  viewViewer: document.getElementById('view-viewer'),
-  viewBatch: document.getElementById('view-batch'),
   btnSynthetic: document.getElementById('btn-synthetic'),
   selectSyntheticPattern: document.getElementById('select-synthetic-pattern'),
   
@@ -237,20 +228,7 @@ const el = {
   loadingOverlay: document.getElementById('loading-overlay'),
   loadingText: document.getElementById('loading-text'),
   toast: document.getElementById('toast'),
-  
-  // Batch Panel elements
-  batchDropzone: document.getElementById('batch-dropzone'),
-  batchFileInput: document.getElementById('batch-file-input'),
-  batchEmptyState: document.getElementById('batch-empty-state'),
-  batchFilesList: document.getElementById('batch-files-list'),
-  batchSelectOperator: document.getElementById('batch-select-operator'),
-  batchSelectFormat: document.getElementById('batch-select-format'),
-  batchProgress: document.getElementById('batch-progress'),
-  batchProgressLabel: document.getElementById('batch-progress-label'),
-  batchProgressPercent: document.getElementById('batch-progress-percent'),
-  batchProgressBar: document.getElementById('batch-progress-bar'),
-  btnBatchClear: document.getElementById('btn-batch-clear'),
-  btnBatchStart: document.getElementById('btn-batch-start'),
+
   
   // Gallery elements
   galleryBar: document.getElementById('gallery-bar'),
@@ -550,9 +528,6 @@ function updateActiveModeLabel(isNativeHdr) {
 
 // Event Listeners Configuration
 function setupEventListeners() {
-  // Tabs
-  el.tabViewer.addEventListener('click', () => switchTab('viewer'));
-  el.tabBatch.addEventListener('click', () => switchTab('batch'));
 
   // Synthetic Button
   el.btnSynthetic.addEventListener('click', loadSyntheticImage);
@@ -994,13 +969,6 @@ function setupEventListeners() {
     }
   });
 
-  // Batch Dropzone
-  el.batchDropzone.addEventListener('click', () => el.batchFileInput.click());
-  el.batchFileInput.addEventListener('change', (e) => addBatchFiles(e.target.files));
-  setupDragAndDrop(el.batchDropzone, (file) => addBatchFiles([file]));
-
-  el.btnBatchClear.addEventListener('click', clearBatch);
-  el.btnBatchStart.addEventListener('click', runBatchConversion);
 
   // Example Scene selector
   if (el.selectExampleScene) {
@@ -1011,41 +979,6 @@ function setupEventListeners() {
   }
 }
 
-// Drag & Drop helper
-function setupDragAndDrop(target, callback) {
-  target.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    target.classList.add('dragover');
-  });
-
-  target.addEventListener('dragleave', () => {
-    target.classList.remove('dragover');
-  });
-
-  target.addEventListener('drop', (e) => {
-    e.preventDefault();
-    target.classList.remove('dragover');
-    if (e.dataTransfer.files.length > 0) {
-      callback(e.dataTransfer.files[0]);
-    }
-  });
-}
-
-// Tab Switching
-function switchTab(tab) {
-  if (tab === 'viewer') {
-    el.tabViewer.classList.add('active');
-    el.tabBatch.classList.remove('active');
-    el.viewViewer.classList.add('active');
-    el.viewBatch.classList.remove('active');
-    requestRender();
-  } else {
-    el.tabViewer.classList.remove('active');
-    el.tabBatch.classList.add('active');
-    el.viewViewer.classList.remove('active');
-    el.viewBatch.classList.add('active');
-  }
-}
 
 // Show/Hide Loading
 function showLoading(text) {
@@ -2540,302 +2473,12 @@ function downloadBlob(blob, name) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Delay revocation to ensure browser has started downloading
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
-// --- BATCH CONVERTER ---
-
-// Add files to Batch List Queue
-function addBatchFiles(files) {
-  if (isBatchProcessing) return;
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const ext = file.name.split('.').pop().toLowerCase();
-    
-    // Validate extensions
-    if (['jxr', 'wdp', 'exr', 'hdr', 'avif'].includes(ext)) {
-      // Avoid duplicates
-      if (!batchFiles.some(bf => bf.file.name === file.name && bf.file.size === file.size)) {
-        batchFiles.push({
-          file: file,
-          status: 'pending',
-          error: ''
-        });
-      }
-    } else {
-      showToast(`File "${file.name}" has an unsupported HDR format. Skipped.`, 'error');
-    }
-  }
-
-  updateBatchUI();
-}
-
-// Clear Batch List Queue
-function clearBatch() {
-  if (isBatchProcessing) return;
-  batchFiles = [];
-  updateBatchUI();
-  el.batchProgress.style.display = 'none';
-}
-
-// Update Batch View Interface
-function updateBatchUI() {
-  if (batchFiles.length === 0) {
-    el.batchEmptyState.style.display = 'flex';
-    el.batchFilesList.style.display = 'none';
-    el.batchFilesList.innerHTML = '';
-  } else {
-    el.batchEmptyState.style.display = 'none';
-    el.batchFilesList.style.display = 'block';
-    
-    el.batchFilesList.innerHTML = '';
-    batchFiles.forEach((item, index) => {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'batch-item';
-
-      let statusBadge = '';
-      if (item.status === 'pending') {
-        statusBadge = '<span class="batch-item-status status-pending">Pending</span>';
-      } else if (item.status === 'processing') {
-        statusBadge = '<span class="batch-item-status status-processing">Processing</span>';
-      } else if (item.status === 'done') {
-        statusBadge = '<span class="batch-item-status status-done">Done</span>';
-      } else {
-        statusBadge = `<span class="batch-item-status status-error" title="${item.error}">Error</span>`;
-      }
-
-      const sizeKB = (item.file.size / 1024).toFixed(0);
-      const ext = item.file.name.split('.').pop().toUpperCase();
-
-      itemEl.innerHTML = `
-        <div class="batch-item-info">
-          <div class="batch-item-name">${item.file.name}</div>
-          <div class="batch-item-meta">
-            <span>Format: ${ext}</span>
-            <span>Rozmiar: ${sizeKB} KB</span>
-          </div>
-        </div>
-        ${statusBadge}
-        <button class="batch-item-remove" data-index="${index}">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-          </svg>
-        </button>
-      `;
-
-      itemEl.querySelector('.batch-item-remove').addEventListener('click', (e) => {
-        const idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
-        batchFiles.splice(idx, 1);
-        updateBatchUI();
-      });
-
-      el.batchFilesList.appendChild(itemEl);
-    });
-  }
-}
-
-// Run Batch Processing
-async function runBatchConversion() {
-  if (batchFiles.length === 0 || isBatchProcessing) return;
-
-  isBatchProcessing = true;
-  el.batchProgress.style.display = 'flex';
-  el.btnBatchStart.disabled = true;
-  el.btnBatchClear.disabled = true;
-
-  // Retrieve batch conversion settings
-  const outputFormat = el.batchSelectFormat.value;
-
-  // Set preset options for CPU-based tone mapping loop based on interactive UI settings
-  let exposure = renderOptions.exposure;
-  const opValue = parseInt(el.batchSelectOperator.value, 10);
-  const operator = opValue === 0 ? 'linear' :
-                   opValue === 1 ? 'reinhard' :
-                   opValue === 2 ? 'aces' :
-                   opValue === 3 ? 'hable' :
-                   opValue === 4 ? 'lottes' :
-                   opValue === 5 ? 'uchimura' : 'linear';
-  let gamma = renderOptions.gamma;
-  let contrast = renderOptions.contrast;
-  let sdrWhite = renderOptions.sdrWhite;
-  let targetPeak = renderOptions.targetPeak;
-  let autoExposureCorrect = renderOptions.autoExposureCorrect;
-
-  const zip = new JSZip();
-  const numFiles = batchFiles.length;
-
-  for (let i = 0; i < numFiles; i++) {
-    const item = batchFiles[i];
-    item.status = 'processing';
-    updateBatchUI();
-    
-    // Update progress bar
-    const percent = Math.round((i / numFiles) * 100);
-    el.batchProgressPercent.textContent = `${percent}%`;
-    el.batchProgressLabel.textContent = `Converting (${i + 1}/${numFiles}): ${item.file.name}`;
-    el.batchProgressBar.style.width = `${percent}%`;
-
-    try {
-      const buffer = await item.file.arrayBuffer();
-      const ext = item.file.name.split('.').pop().toLowerCase();
-      let decoded = null;
-
-      // 1. Decode
-      if (ext === 'jxr' || ext === 'wdp') {
-        decoded = await decodeJXR(buffer);
-      } else if (ext === 'exr') {
-        decoded = decodeEXR(buffer);
-      } else if (ext === 'hdr') {
-        decoded = decodeRGBE(buffer);
-      } else if (ext === 'avif') {
-        decoded = await decodeAVIF(buffer, item.file);
-      } else {
-        throw new Error('Unsupported format');
-      }
-
-      const fileIsHdr = decoded.isHDR !== false;
-
-      // 2. Encode
-      const filename = item.file.name.replace(/\.[^/.]+$/, ""); // strip extension
-      
-      if (outputFormat === 'hdr') {
-        // HDR conversion: output the raw float values directly
-        const fileBytes = encodeRGBE(decoded.width, decoded.height, decoded.data);
-        zip.file(`${filename}_converted.hdr`, fileBytes);
-      } else if (outputFormat.startsWith('png') && outputFormat !== 'png') {
-        // Custom 10/12/16-bit SDR/HDR PNG
-        const isSdr = outputFormat.endsWith('sdr');
-        const bitDepth = outputFormat.includes('10') ? 10 : outputFormat.includes('12') ? 12 : 16;
-        
-        let transfer = 'linear';
-        if (outputFormat.endsWith('pq')) {
-          transfer = 'pq';
-        } else if (outputFormat.endsWith('hlg')) {
-          transfer = 'hlg';
-        }
-
-        let toneMapperFunc = null;
-        if (isSdr) {
-          toneMapperFunc = createToneMapperFunc(
-            exposure,
-            operator,
-            gamma,
-            contrast,
-            sdrWhite,
-            targetPeak,
-            autoExposureCorrect,
-            {
-              sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
-              smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
-              saturation: renderOptions.saturation,
-              highlights: renderOptions.highlights,
-              shadows: renderOptions.shadows,
-              temp: renderOptions.temp,
-              tint: renderOptions.tint
-            }
-          );
-        }
-        
-        let resolvedExposure = exposure;
-        if (autoExposureCorrect) {
-          resolvedExposure += Math.log2(80.0 / sdrWhite);
-        }
-
-        const maxLuminance = calculateMaxLuminance(decoded.data);
-        const fileBytes = await encodePNG(decoded.width, decoded.height, decoded.data, {
-          bitDepth: bitDepth,
-          type: isSdr ? 'sdr' : 'hdr',
-          transfer: transfer,
-          exposure: resolvedExposure,
-          contrast: contrast,
-          sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
-          sdrWhite: sdrWhite,
-          maxLuminance: maxLuminance,
-          toneMapperFunc: toneMapperFunc,
-          smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
-          saturation: renderOptions.saturation,
-          highlights: renderOptions.highlights,
-          shadows: renderOptions.shadows,
-          temp: renderOptions.temp,
-          tint: renderOptions.tint
-        });
-        zip.file(`${filename}_converted.png`, fileBytes);
-      } else {
-        // SDR conversion (PNG 8-bit, JPEG, WebP)
-        // Perform CPU-based tone-mapping calculations
-        const sdrBytes = toneMapOnCPU(
-          decoded.width,
-          decoded.height,
-          decoded.data,
-          exposure,
-          operator,
-          gamma,
-          contrast,
-          sdrWhite,
-          targetPeak,
-          autoExposureCorrect,
-          {
-            sdrBoost: fileIsHdr ? 1.0 : renderOptions.sdrBoost,
-            smartUpmix: fileIsHdr ? false : renderOptions.smartUpmix,
-            saturation: renderOptions.saturation,
-            highlights: renderOptions.highlights,
-            shadows: renderOptions.shadows,
-            temp: renderOptions.temp,
-            tint: renderOptions.tint
-          }
-        );
-        
-        // Write bytes to virtual Canvas 2D to create compressed image blob
-        const canvas = document.createElement('canvas');
-        canvas.width = decoded.width;
-        canvas.height = decoded.height;
-        const ctx = canvas.getContext('2d');
-        const imgData = ctx.createImageData(decoded.width, decoded.height);
-        imgData.data.set(sdrBytes);
-        ctx.putImageData(imgData, 0, 0);
-
-        const imgBlob = await new Promise((resolve) => {
-          if (outputFormat === 'png') {
-            canvas.toBlob(resolve, 'image/png');
-          } else if (outputFormat === 'webp') {
-            canvas.toBlob(resolve, 'image/webp');
-          } else {
-            canvas.toBlob(resolve, 'image/jpeg', 0.9);
-          }
-        });
-
-        const extension = outputFormat === 'png' ? 'png' : (outputFormat === 'webp' ? 'webp' : 'jpg');
-        zip.file(`${filename}_converted.${extension}`, imgBlob);
-      }
-
-      item.status = 'done';
-    } catch (err) {
-      item.status = 'error';
-      item.error = err.message;
-      console.error(err);
-    }
-    
-    updateBatchUI();
-  }
-
-  // 3. Complete and zip download
-  el.batchProgressPercent.textContent = '100%';
-  el.batchProgressLabel.textContent = 'Compressing zip archive...';
-  el.batchProgressBar.style.width = '100%';
-
-  try {
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(zipBlob, `Lumina_HDR_Batch_${Date.now()}.zip`);
-    showToast('Batch processing completed successfully. Downloaded zip archive!');
-  } catch (err) {
-    showToast('ZIP generation error: ' + err.message, 'error');
-  } finally {
-    isBatchProcessing = false;
-    el.btnBatchStart.disabled = false;
-    el.btnBatchClear.disabled = false;
-  }
-}
 
 // Unified function to create a tone mapper matching WebGL and CPU pipelines
 function createToneMapperFunc(exposure, operator, gamma, contrast, sdrWhite = 200.0, targetPeak = 1000.0, autoExposureCorrect = true, extraOptions = {}) {
@@ -3027,24 +2670,6 @@ function createToneMapperFunc(exposure, operator, gamma, contrast, sdrWhite = 20
   };
 }
 
-// CPU-based Tone Mapping Loop for Batch Exports
-function toneMapOnCPU(w, h, data, exposure, operator, gamma, contrast, sdrWhite = 200.0, targetPeak = 1000.0, autoExposureCorrect = true, extraOptions = {}) {
-  const numPixels = w * h;
-  const sdrBytes = new Uint8ClampedArray(numPixels * 4);
-  
-  const toneMap = createToneMapperFunc(exposure, operator, gamma, contrast, sdrWhite, targetPeak, autoExposureCorrect, extraOptions);
-
-  for (let i = 0; i < numPixels; i++) {
-    const idx = i * 4;
-    const mapped = toneMap(data[idx], data[idx + 1], data[idx + 2]);
-    sdrBytes[idx] = Math.round(mapped[0] * 255);
-    sdrBytes[idx + 1] = Math.round(mapped[1] * 255);
-    sdrBytes[idx + 2] = Math.round(mapped[2] * 255);
-    sdrBytes[idx + 3] = Math.round(Math.min(1.0, Math.max(0.0, data[idx + 3])) * 255);
-  }
-
-  return sdrBytes;
-}
 
 // Start Application on DOM Load
 window.addEventListener('DOMContentLoaded', init);

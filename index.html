@@ -19,10 +19,6 @@
       <span>v1.0.0</span>
     </div>
 
-    <div class="app-tabs">
-      <button id="tab-viewer" class="tab-btn active">Interactive Preview</button>
-      <button id="tab-batch" class="tab-btn">Batch Converter</button>
-    </div>
 
     <div class="header-actions">
       <select id="select-synthetic-pattern" class="select-synthetic">
@@ -557,103 +553,6 @@
 
       </div>
 
-    </div>
-
-    <!-- VIEW 2: BATCH CONVERTER -->
-    <div id="view-batch" class="panel-view">
-      <div class="batch-container">
-        
-        <!-- Left Side: File List and Dropzone -->
-        <div class="batch-left">
-          <div id="batch-dropzone" class="batch-dropzone">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-            </svg>
-            <p style="font-size: 16px; font-weight: 500; margin-top: 10px;">Drag and drop multiple HDR files</p>
-            <span style="margin-top: 6px;">You can drop multiple .jxr, .exr, .hdr, or .avif files at once</span>
-            <input type="file" id="batch-file-input" accept=".jxr,.wdp,.exr,.hdr,.avif" multiple style="display: none;" />
-          </div>
-
-          <div class="batch-list-wrapper">
-            <div id="batch-empty-state" class="empty-state">
-              <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-              </svg>
-              <p>No files in conversion queue</p>
-            </div>
-            <div id="batch-files-list" style="display: none;">
-              <!-- Elements generated dynamically in JS -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Right Side: Batch Options and Parameters -->
-        <div class="batch-right">
-          <h2 style="font-family: var(--font-display); font-size: 16px; border-bottom: 1px solid var(--panel-border); padding-bottom: 12px; margin-bottom: 8px;">Batch Settings</h2>
-          
-          <!-- Batch HDR Info Tip -->
-          <div class="batch-info-tip">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-            <span>Batch conversion runs mathematically. <strong>No HDR monitor or HDR Monitor Mode required</strong>.</span>
-          </div>
-          
-          <div class="control-group">
-            <div class="control-header">
-              <label class="control-label" for="batch-select-operator">Operator</label>
-            </div>
-            <select id="batch-select-operator">
-              <option value="2" selected>ACES Filmic</option>
-              <option value="3">Hable</option>
-              <option value="4">Lottes Filmic</option>
-              <option value="5">Uchimura</option>
-              <option value="1">Reinhard</option>
-              <option value="0">Linear / Clamp</option>
-            </select>
-          </div>
-
-          <div class="control-group">
-            <div class="control-header">
-              <label class="control-label" for="batch-select-format">Output Format</label>
-            </div>
-            <select id="batch-select-format">
-              <option value="png">PNG (SDR, 8-bit)</option>
-              <option value="png10sdr">PNG (SDR, 10-bit)</option>
-              <option value="png10pq">PNG (HDR, 10-bit PQ BT.2100)</option>
-              <option value="png10hlg">PNG (HDR, 10-bit HLG BT.2100)</option>
-              <option value="png10hdr">PNG (HDR, 10-bit Linear Rec.709)</option>
-              <option value="png12sdr">PNG (SDR, 12-bit)</option>
-              <option value="png12pq">PNG (HDR, 12-bit PQ BT.2100)</option>
-              <option value="png12hlg">PNG (HDR, 12-bit HLG BT.2100)</option>
-              <option value="png12hdr">PNG (HDR, 12-bit Linear Rec.709)</option>
-              <option value="png16sdr">PNG (SDR, 16-bit)</option>
-              <option value="png16pq">PNG (HDR, 16-bit PQ BT.2100)</option>
-              <option value="png16hlg">PNG (HDR, 16-bit HLG BT.2100)</option>
-              <option value="png16hdr">PNG (HDR, 16-bit Linear Rec.709)</option>
-              <option value="webp">WebP (SDR, 8-bit)</option>
-              <option value="jpeg">JPEG (SDR, 8-bit)</option>
-              <option value="hdr">Radiance HDR (HDR, 32-bit Float)</option>
-            </select>
-          </div>
-
-          <div class="batch-actions-section">
-            <div id="batch-progress" class="batch-progress-container" style="display: none;">
-              <div class="batch-progress-text">
-                <span id="batch-progress-label">Processing...</span>
-                <span id="batch-progress-percent">0%</span>
-              </div>
-              <div class="batch-progress-bar-bg">
-                <div id="batch-progress-bar" class="batch-progress-bar"></div>
-              </div>
-            </div>
-
-            <button id="btn-batch-clear" class="btn btn-secondary" style="width: 100%; justify-content: center; margin-bottom: 6px;">Clear List</button>
-            <button id="btn-batch-start" class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 14px; padding: 12px 20px;">
-              Start Conversion & Download (.zip)
-            </button>
-          </div>
-        </div>
-
-      </div>
     </div>
 
   </main>

@@ -2,7 +2,7 @@
 
 https://ventus34.github.io/lumina-hdr/
 
-Lumina HDR is a feature-rich, client-side web application designed for viewing, calibrating, tone mapping, and batch-converting HDR screenshots and images (including JXR, AVIF, EXR, and Radiance HDR). It provides interactive tools to preview high-dynamic-range content and export it to modern formats (like high-precision HDR/SDR PNGs) with precise control. Made with Antigravity (and Gemini 3.5 Flash) to solve the problem of viewing JXR HDR screenshots from the Xbox app and AVIF HDR screenshots from Steam in Discord/macOS.
+Lumina HDR is a feature-rich, client-side web application designed for viewing, calibrating, and tone mapping HDR screenshots and images (including JXR, AVIF, EXR, and Radiance HDR). It provides interactive tools to preview high-dynamic-range content and export it to modern formats (like high-precision HDR/SDR PNGs) with precise control. Made with Antigravity (and Gemini 3.5 Flash) to solve the problem of viewing JXR HDR screenshots from the Xbox app and AVIF HDR screenshots from Steam in Discord/macOS.
 
 ---
 
@@ -28,12 +28,7 @@ Lumina HDR is a feature-rich, client-side web application designed for viewing, 
   * **Highlight Clipping Zebra:** Display zebra stripes on areas exceeding specified SDR or HDR brightness thresholds.
 * **HDR Monitor Mode (Experimental):** Renders the preview using the browser's native HDR capabilities (requires HDR monitor, OS support, and enabling experimental Web Platform features in Chrome).
 
-### 3. Batch Converter
-* **Queue Processing:** Drop multiple files (`.jxr`, `.avif`, `.exr`, or `.hdr`) into the queue.
-* **Bulk Settings:** Apply tone mapping presets and configuration across all images.
-* **Zip Export:** Automatically processes all images in the queue and packs them into a single, downloadable `.zip` file directly on the client.
-
-### 4. Advanced Export Formats
+### 3. Advanced Export Formats
 * **PNG Output:**
   * Standard SDR (8-bit, 10-bit, 12-bit, 16-bit)
   * HDR PQ BT.2100 (10-bit, 12-bit, 16-bit) with custom `cICP` chunk injection
@@ -54,7 +49,6 @@ Lumina HDR is built as a modern, zero-install client-side web application. It ru
 * **Vite:** High-performance local development environment and build tool.
 
 ### Dependency Libraries (listed in `package.json`)
-* **[`jszip`](https://github.com/Stuk/jszip)** (v3.10.1) — Used for client-side compression of batch-converted images into a `.zip` archive. *License: MIT or GPLv3*
 * **[`parse-exr`](https://github.com/scijs/parse-exr)** (v1.0.2) — Lightweight parser for decoding OpenEXR (`.exr`) image buffers into raw floating-point arrays. *License: MIT*
 * **[`jpegxr`](https://github.com/yushijinhun/jpegxr-js)** (v0.3.0) — WebAssembly port of the JPEG XR reference library (`jxrlib`), used to decode `.jxr` screenshots (such as those captured by Windows HDR). *License: MIT*
 

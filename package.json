@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "jpegxr": "^0.3.0",
-    "jszip": "^3.10.1",
     "parse-exr": "^1.0.2"
   }
 }

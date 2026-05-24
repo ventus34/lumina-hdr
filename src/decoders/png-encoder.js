@@ -28,9 +28,10 @@ function crc32(data) {
 async function compressDeflate(rawData) {
   const cs = new CompressionStream('deflate');
   const writer = cs.writable.getWriter();
-  // Write data and close in one go
-  writer.write(rawData);
-  writer.close();
+  // Write data and close in one go, awaiting both to prevent stream corruption
+  await writer.write(rawData);
+  await writer.close();
+
 
   // Read all compressed chunks
   const reader = cs.readable.getReader();
