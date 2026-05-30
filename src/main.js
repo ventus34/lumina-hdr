@@ -241,7 +241,47 @@ const el = {
   btnSelectFolder: document.getElementById('btn-select-folder'),
   btnToggleGallery: document.getElementById('btn-toggle-gallery'),
   folderInput: document.getElementById('folder-input'),
-  viewportContainer: document.querySelector('.viewport-container')
+  viewportContainer: document.querySelector('.viewport-container'),
+
+  // Tabs navigation
+  btnTabViewer: document.getElementById('btn-tab-viewer'),
+  btnTabBatch: document.getElementById('btn-tab-batch'),
+  viewViewer: document.getElementById('view-viewer'),
+  viewBatch: document.getElementById('view-batch'),
+
+  // Presets
+  selectPreset: document.getElementById('select-preset'),
+  inputPresetName: document.getElementById('input-preset-name'),
+  btnSavePreset: document.getElementById('btn-save-preset'),
+  btnDeletePreset: document.getElementById('btn-delete-preset'),
+  customPresetActions: document.getElementById('custom-preset-actions'),
+  presetsDefault: document.getElementById('presets-default'),
+  presetsCustom: document.getElementById('presets-custom'),
+
+  // Batch sidebar
+  batchSelectPreset: document.getElementById('batch-select-preset'),
+  batchPresetsDefault: document.getElementById('batch-presets-default'),
+  batchPresetsCustom: document.getElementById('batch-presets-custom'),
+  batchSelectExportFormat: document.getElementById('batch-select-export-format'),
+  batchJpegQualityGroup: document.getElementById('batch-jpeg-quality-group'),
+  batchSliderJpegQuality: document.getElementById('batch-slider-jpeg-quality'),
+  batchValJpegQuality: document.getElementById('batch-val-jpeg-quality'),
+  batchInputSuffix: document.getElementById('batch-input-suffix'),
+  btnBatchStart: document.getElementById('btn-batch-start'),
+  btnBatchClear: document.getElementById('btn-batch-clear'),
+
+  // Batch main viewport
+  batchDropzone: document.getElementById('batch-dropzone'),
+  batchListContainer: document.getElementById('batch-list-container'),
+  batchStatusTitle: document.getElementById('batch-status-title'),
+  batchProgressSubtitle: document.getElementById('batch-progress-subtitle'),
+  batchPercentage: document.getElementById('batch-percentage'),
+  batchProgressBar: document.getElementById('batch-progress-bar'),
+  batchTableBody: document.getElementById('batch-table-body'),
+  btnBatchSelectFiles: document.getElementById('btn-batch-select-files'),
+  btnBatchSelectFolder: document.getElementById('btn-batch-select-folder'),
+  batchFileInput: document.getElementById('batch-file-input'),
+  batchFolderInput: document.getElementById('batch-folder-input')
 };
 
 // HDR Calibration helpers
@@ -421,6 +461,869 @@ function loadExampleScene(index) {
   }, 50);
 }
 
+// Default Presets & Profiles
+const DEFAULT_PRESETS = {
+  'aces-filmic': {
+    name: 'ACES Filmic (Default)',
+    options: {
+      toneMapper: 2,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: true,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  },
+  'reinhard': {
+    name: 'Reinhard Filmic',
+    options: {
+      toneMapper: 1,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: true,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  },
+  'hable': {
+    name: 'Hable (Uncharted)',
+    options: {
+      toneMapper: 3,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: true,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  },
+  'lottes': {
+    name: 'Lottes Filmic',
+    options: {
+      toneMapper: 4,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: true,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  },
+  'uchimura': {
+    name: 'Uchimura (Gran Turismo)',
+    options: {
+      toneMapper: 5,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: true,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  },
+  'linear': {
+    name: 'Linear (Bypass)',
+    options: {
+      toneMapper: 0,
+      exposure: 0.0,
+      gamma: 2.2,
+      contrast: 1.0,
+      sdrBoost: 1.0,
+      sdrWhite: 200.0,
+      targetPeak: 1000.0,
+      autoExposureCorrect: false,
+      smartUpmix: false,
+      saturation: 1.0,
+      highlights: 0.0,
+      shadows: 0.0,
+      temp: 0.0,
+      tint: 0.0
+    }
+  }
+};
+
+const PRESETS_STORAGE_KEY = 'lumina_custom_presets';
+let isApplyingPreset = false;
+
+function getCustomPresets() {
+  try {
+    const data = localStorage.getItem(PRESETS_STORAGE_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch (err) {
+    console.error('Error reading presets from localStorage:', err);
+    return {};
+  }
+}
+
+function saveCustomPresets(presets) {
+  try {
+    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+  } catch (err) {
+    console.error('Error saving presets to localStorage:', err);
+    showToast('Failed to save preset to storage.', 'error');
+  }
+}
+
+function populatePresetsDropdowns() {
+  el.presetsDefault.innerHTML = '';
+  el.presetsCustom.innerHTML = '';
+  
+  if (el.batchPresetsDefault) el.batchPresetsDefault.innerHTML = '';
+  if (el.batchPresetsCustom) el.batchPresetsCustom.innerHTML = '';
+
+  // 1. Populate Defaults
+  for (const [key, preset] of Object.entries(DEFAULT_PRESETS)) {
+    const optViewer = document.createElement('option');
+    optViewer.value = key;
+    optViewer.textContent = preset.name;
+    el.presetsDefault.appendChild(optViewer);
+
+    if (el.batchPresetsDefault) {
+      const optBatch = document.createElement('option');
+      optBatch.value = key;
+      optBatch.textContent = preset.name;
+      el.batchPresetsDefault.appendChild(optBatch);
+    }
+  }
+
+  // 2. Populate Custom
+  const custom = getCustomPresets();
+  const hasCustom = Object.keys(custom).length > 0;
+
+  if (hasCustom) {
+    for (const [key, preset] of Object.entries(custom)) {
+      const optViewer = document.createElement('option');
+      optViewer.value = key;
+      optViewer.textContent = preset.name;
+      el.presetsCustom.appendChild(optViewer);
+
+      if (el.batchPresetsCustom) {
+        const optBatch = document.createElement('option');
+        optBatch.value = key;
+        optBatch.textContent = preset.name;
+        el.batchPresetsCustom.appendChild(optBatch);
+      }
+    }
+  } else {
+    const emptyViewer = document.createElement('option');
+    emptyViewer.disabled = true;
+    emptyViewer.textContent = '(None saved)';
+    el.presetsCustom.appendChild(emptyViewer);
+
+    if (el.batchPresetsCustom) {
+      const emptyBatch = document.createElement('option');
+      emptyBatch.disabled = true;
+      emptyBatch.textContent = '(None saved)';
+      el.batchPresetsCustom.appendChild(emptyBatch);
+    }
+  }
+}
+
+function applyPresetToUI(presetId) {
+  let preset = DEFAULT_PRESETS[presetId];
+  if (!preset) {
+    const custom = getCustomPresets();
+    preset = custom[presetId];
+  }
+
+  if (!preset) return;
+
+  isApplyingPreset = true;
+  const opt = preset.options;
+
+  // Update renderOptions
+  Object.assign(renderOptions, opt);
+
+  // Sync controls
+  el.selectOperator.value = renderOptions.toneMapper;
+  updateOperatorInfoCard(renderOptions.toneMapper);
+
+  el.sliderExposure.value = renderOptions.exposure;
+  el.valExposure.textContent = (renderOptions.exposure >= 0 ? '+' : '') + renderOptions.exposure.toFixed(2);
+
+  el.sliderGamma.value = renderOptions.gamma;
+  el.valGamma.textContent = renderOptions.gamma.toFixed(2);
+
+  el.sliderContrast.value = renderOptions.contrast;
+  el.valContrast.textContent = renderOptions.contrast.toFixed(2);
+
+  el.sliderSdrBoost.value = renderOptions.sdrBoost;
+  el.valSdrBoost.textContent = `${renderOptions.sdrBoost.toFixed(2)}x`;
+
+  el.checkboxSmartUpmix.checked = renderOptions.smartUpmix;
+
+  // SDR White
+  const sdrWhiteStr = renderOptions.sdrWhite.toString();
+  if (['80', '200', '203', '300'].includes(sdrWhiteStr)) {
+    el.selectSdrWhite.value = sdrWhiteStr;
+    el.groupCustomSdrWhite.style.display = 'none';
+  } else {
+    el.selectSdrWhite.value = 'custom';
+    el.groupCustomSdrWhite.style.display = 'block';
+    el.sliderSdrWhite.value = renderOptions.sdrWhite;
+  }
+  el.valSdrWhite.textContent = `${renderOptions.sdrWhite} nit`;
+
+  // Target Peak
+  const targetPeakStr = renderOptions.targetPeak.toString();
+  if (['400', '600', '1000', '1500', '2000', '4000'].includes(targetPeakStr)) {
+    el.selectTargetPeak.value = targetPeakStr;
+    el.groupCustomTargetPeak.style.display = 'none';
+  } else {
+    el.selectTargetPeak.value = 'custom';
+    el.groupCustomTargetPeak.style.display = 'block';
+    el.sliderTargetPeak.value = renderOptions.targetPeak;
+  }
+  el.valTargetPeak.textContent = `${renderOptions.targetPeak} nit`;
+
+  el.checkboxAutoExposure.checked = renderOptions.autoExposureCorrect;
+
+  // Preview Mode
+  el.selectPreviewMode.value = renderOptions.previewMode;
+  if (renderOptions.previewMode === 'split' || renderOptions.previewMode === 'split-h') {
+    el.canvas.style.cursor = 'grab';
+  } else {
+    el.canvas.style.cursor = 'default';
+  }
+  if (renderOptions.previewMode === 'blend') {
+    el.groupBlendOpacity.style.display = 'block';
+    el.sliderBlendOpacity.value = renderOptions.blendOpacity;
+    el.valBlendOpacity.textContent = `${renderOptions.blendOpacity}%`;
+  } else {
+    el.groupBlendOpacity.style.display = 'none';
+  }
+
+  // Native HDR
+  el.checkboxNativeHdr.checked = renderOptions.nativeHdr;
+  updateActiveModeLabel(renderOptions.nativeHdr);
+
+  // Visualizations
+  el.checkboxHeatmap.checked = renderOptions.heatmap;
+  el.checkboxClipping.checked = renderOptions.clippingWarning;
+
+  // Color Grading
+  el.sliderSaturation.value = renderOptions.saturation;
+  el.valSaturation.textContent = renderOptions.saturation.toFixed(2);
+
+  el.sliderHighlights.value = renderOptions.highlights;
+  el.valHighlights.textContent = (renderOptions.highlights >= 0 ? '+' : '') + renderOptions.highlights.toFixed(2);
+
+  el.sliderShadows.value = renderOptions.shadows;
+  el.valShadows.textContent = (renderOptions.shadows >= 0 ? '+' : '') + renderOptions.shadows.toFixed(2);
+
+  el.sliderColorTemp.value = renderOptions.temp;
+  el.valColorTemp.textContent = (renderOptions.temp >= 0 ? '+' : '') + renderOptions.temp.toFixed(2);
+
+  el.sliderColorTint.value = renderOptions.tint;
+  el.valColorTint.textContent = (renderOptions.tint >= 0 ? '+' : '') + renderOptions.tint.toFixed(2);
+
+  // Toggle SDR exclusive visibility
+  toggleSdrExclusiveControls(currentImage.isHDR);
+
+  updateToneMapWhite();
+  requestRender();
+  
+  isApplyingPreset = false;
+}
+
+function markPresetModified() {
+  if (isApplyingPreset) return;
+  let customOpt = el.selectPreset.querySelector('option[value="custom-modified"]');
+  if (!customOpt) {
+    customOpt = document.createElement('option');
+    customOpt.value = 'custom-modified';
+    customOpt.textContent = 'Custom (modified)*';
+    el.selectPreset.insertBefore(customOpt, el.selectPreset.firstChild);
+  }
+  el.selectPreset.value = 'custom-modified';
+  el.customPresetActions.style.display = 'none';
+}
+
+function removeCustomModifiedOption() {
+  const customOpt = el.selectPreset.querySelector('option[value="custom-modified"]');
+  if (customOpt) {
+    customOpt.remove();
+  }
+}
+
+// Tab switcher navigation
+function initTabs() {
+  el.btnTabViewer.addEventListener('click', () => {
+    el.btnTabViewer.classList.add('active');
+    el.btnTabBatch.classList.remove('active');
+    el.viewViewer.classList.add('active');
+    el.viewBatch.classList.remove('active');
+    requestRender();
+  });
+
+  el.btnTabBatch.addEventListener('click', () => {
+    el.btnTabViewer.classList.remove('active');
+    el.btnTabBatch.classList.add('active');
+    el.viewViewer.classList.remove('active');
+    el.viewBatch.classList.add('active');
+  });
+}
+
+// Batch processing queue
+let batchQueue = [];
+let batchRenderer = null;
+let batchCanvas = null;
+let isProcessingBatch = false;
+
+function updateBatchUI() {
+  if (batchQueue.length === 0) {
+    el.batchDropzone.style.display = 'flex';
+    el.batchListContainer.style.display = 'none';
+    return;
+  }
+
+  el.batchDropzone.style.display = 'none';
+  el.batchListContainer.style.display = 'flex';
+
+  el.batchTableBody.innerHTML = '';
+  
+  const pendingCount = batchQueue.filter(item => item.status === 'pending').length;
+  const processingCount = batchQueue.filter(item => item.status === 'processing').length;
+  const successCount = batchQueue.filter(item => item.status === 'success').length;
+  const errorCount = batchQueue.filter(item => item.status === 'error').length;
+  
+  el.batchProgressSubtitle.textContent = `${batchQueue.length} file(s) queued | ${successCount} done, ${errorCount} failed, ${pendingCount} pending`;
+
+  batchQueue.forEach((item, index) => {
+    const tr = document.createElement('tr');
+    tr.id = `batch-row-${item.id}`;
+    
+    let badgeHtml = '';
+    if (item.status === 'pending') {
+      badgeHtml = '<span class="badge badge-pending">Queued</span>';
+    } else if (item.status === 'processing') {
+      badgeHtml = '<span class="badge badge-processing">Processing...</span>';
+    } else if (item.status === 'success') {
+      badgeHtml = '<span class="badge badge-success">Completed</span>';
+    } else if (item.status === 'error') {
+      badgeHtml = `<span class="badge badge-error" title="${item.errorMsg}">Failed</span>`;
+    }
+
+    const sizeStr = (item.file.size / (1024 * 1024)).toFixed(2) + ' MB';
+    const ext = item.file.name.split('.').pop().toUpperCase();
+
+    tr.innerHTML = `
+      <td style="text-align: center; color: var(--text-secondary);">${index + 1}</td>
+      <td style="font-weight: 500; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.file.name}</td>
+      <td style="color: var(--text-secondary);">${ext}</td>
+      <td style="color: var(--text-secondary);">${sizeStr}</td>
+      <td>${badgeHtml}</td>
+      <td style="text-align: center;">
+        <button class="btn-remove-row" data-id="${item.id}" title="Remove file" ${isProcessingBatch ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+        </button>
+      </td>
+    `;
+
+    el.batchTableBody.appendChild(tr);
+  });
+
+  el.batchTableBody.querySelectorAll('.btn-remove-row').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      if (isProcessingBatch) return;
+      const id = btn.getAttribute('data-id');
+      batchQueue = batchQueue.filter(item => item.id !== id);
+      updateBatchUI();
+    });
+  });
+}
+
+function addFilesToBatch(files) {
+  const supportedExtensions = ['jxr', 'wdp', 'exr', 'hdr', 'avif', 'png', 'jpg', 'jpeg', 'webp'];
+  let addedCount = 0;
+
+  files.forEach(file => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (supportedExtensions.includes(ext)) {
+      if (!batchQueue.some(item => item.file.name === file.name && item.file.size === file.size)) {
+        batchQueue.push({
+          id: Math.random().toString(36).substr(2, 9),
+          file: file,
+          status: 'pending',
+          errorMsg: ''
+        });
+        addedCount++;
+      }
+    }
+  });
+
+  if (addedCount > 0) {
+    updateBatchUI();
+    showToast(`Added ${addedCount} file(s) to the batch queue.`);
+  } else {
+    showToast('No new supported image files were added.', 'warning');
+  }
+}
+
+async function processBatch() {
+  if (batchQueue.length === 0 || isProcessingBatch) return;
+
+  isProcessingBatch = true;
+  toggleBatchSidebarLock(true);
+  
+  el.batchStatusTitle.textContent = 'Processing files...';
+  showToast('Processing started. Please allow multiple file downloads if prompted by your browser.', 'info');
+
+  for (let i = 0; i < batchQueue.length; i++) {
+    const item = batchQueue[i];
+    item.status = 'processing';
+    updateBatchUI();
+
+    const percentage = Math.round((i / batchQueue.length) * 100);
+    el.batchPercentage.textContent = `${percentage}%`;
+    el.batchProgressBar.style.width = `${percentage}%`;
+    
+    await new Promise(r => setTimeout(r, 50));
+
+    try {
+      const ext = item.file.name.split('.').pop().toLowerCase();
+      const arrayBuffer = await item.file.arrayBuffer();
+      
+      let decoded = null;
+      let isHDR = true;
+
+      if (ext === 'jxr' || ext === 'wdp') {
+        decoded = await decodeJXR(arrayBuffer);
+      } else if (ext === 'exr') {
+        decoded = decodeEXR(arrayBuffer);
+      } else if (ext === 'hdr') {
+        decoded = decodeRGBE(arrayBuffer);
+      } else if (ext === 'avif') {
+        decoded = await decodeAVIF(arrayBuffer, item.file);
+        isHDR = decoded.isHDR;
+      } else {
+        decoded = await decodeStandardImage(item.file);
+        isHDR = false;
+      }
+
+      if (!decoded || !decoded.data) {
+        throw new Error('Failed to decode image data.');
+      }
+
+      if (!batchRenderer) {
+        batchCanvas = document.createElement('canvas');
+        batchRenderer = new WebGLRenderer(batchCanvas);
+      }
+      
+      batchCanvas.width = decoded.width;
+      batchCanvas.height = decoded.height;
+      batchRenderer.setImage(decoded.width, decoded.height, decoded.data);
+
+      // Resolve options to apply
+      let activeOptions = { ...renderOptions };
+      const selectedPreset = el.batchSelectPreset.value;
+      if (selectedPreset !== 'current') {
+        let preset = DEFAULT_PRESETS[selectedPreset];
+        if (!preset) {
+          preset = getCustomPresets()[selectedPreset];
+        }
+        if (preset) {
+          activeOptions = { ...preset.options };
+        }
+      }
+
+      let exposure = activeOptions.exposure;
+      if (activeOptions.autoExposureCorrect) {
+        exposure += Math.log2(80.0 / activeOptions.sdrWhite);
+      }
+
+      const opt = {
+        ...activeOptions,
+        previewMode: 'hdr',
+        splitX: 0.0,
+        splitY: 0.0,
+        heatmap: false,
+        clippingWarning: false,
+        nativeHdr: false,
+        exposure: exposure,
+        toneMapWhite: activeOptions.targetPeak / activeOptions.sdrWhite,
+        smartUpmix: isHDR ? false : activeOptions.smartUpmix,
+        sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost
+      };
+
+      batchRenderer.zoom = 1.0;
+      batchRenderer.panX = 0.0;
+      batchRenderer.panY = 0.0;
+      batchRenderer.render(opt, true);
+
+      const format = el.batchSelectExportFormat.value;
+      const baseName = item.file.name.replace(/\.[^/.]+$/, "");
+      const suffix = el.batchInputSuffix.value || '';
+      const outFilename = `${baseName}${suffix}`;
+
+      if (format === 'hdr') {
+        const fileBytes = encodeRGBE(decoded.width, decoded.height, decoded.data);
+        downloadBlob(new Blob([fileBytes], { type: 'image/vnd.radiance' }), `${outFilename}.hdr`);
+      } else if (format.startsWith('png') && format !== 'png') {
+        const isSdr = format.endsWith('sdr');
+        const bitDepth = format.includes('10') ? 10 : format.includes('12') ? 12 : 16;
+        let transfer = 'linear';
+        if (format.endsWith('pq')) {
+          transfer = 'pq';
+        } else if (format.endsWith('hlg')) {
+          transfer = 'hlg';
+        }
+        
+        let toneMapperFunc = null;
+        if (isSdr) {
+          const activeOperator = opt.toneMapper === 0 ? 'linear' :
+                                 opt.toneMapper === 1 ? 'reinhard' :
+                                 opt.toneMapper === 2 ? 'aces' :
+                                 opt.toneMapper === 3 ? 'hable' :
+                                 opt.toneMapper === 4 ? 'lottes' :
+                                 opt.toneMapper === 5 ? 'uchimura' : 'linear';
+          
+          toneMapperFunc = createToneMapperFunc(
+            activeOptions.exposure,
+            activeOperator,
+            activeOptions.gamma,
+            activeOptions.contrast,
+            activeOptions.sdrWhite,
+            activeOptions.targetPeak,
+            activeOptions.autoExposureCorrect,
+            {
+              sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost,
+              smartUpmix: isHDR ? false : activeOptions.smartUpmix,
+              saturation: activeOptions.saturation,
+              highlights: activeOptions.highlights,
+              shadows: activeOptions.shadows,
+              temp: activeOptions.temp,
+              tint: activeOptions.tint
+            }
+          );
+        }
+
+        let resolvedExposure = activeOptions.exposure;
+        if (activeOptions.autoExposureCorrect) {
+          resolvedExposure += Math.log2(80.0 / activeOptions.sdrWhite);
+        }
+
+        const pngBytes = await encodePNG(decoded.width, decoded.height, decoded.data, {
+          bitDepth: bitDepth,
+          type: isSdr ? 'sdr' : 'hdr',
+          transfer: transfer,
+          exposure: resolvedExposure,
+          contrast: activeOptions.contrast,
+          sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost,
+          sdrWhite: activeOptions.sdrWhite,
+          maxLuminance: calculateMaxLuminance(decoded.data),
+          toneMapperFunc: toneMapperFunc,
+          smartUpmix: isHDR ? false : activeOptions.smartUpmix,
+          saturation: activeOptions.saturation,
+          highlights: activeOptions.highlights,
+          shadows: activeOptions.shadows,
+          temp: activeOptions.temp,
+          tint: activeOptions.tint
+        });
+
+        downloadBlob(new Blob([pngBytes], { type: 'image/png' }), `${outFilename}.png`);
+      } else {
+        const pixels = batchRenderer.readPixels();
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = decoded.width;
+        exportCanvas.height = decoded.height;
+        const exportCtx = exportCanvas.getContext('2d');
+        const imgData = exportCtx.createImageData(decoded.width, decoded.height);
+        imgData.data.set(pixels);
+        exportCtx.putImageData(imgData, 0, 0);
+
+        await new Promise((resolveB, rejectB) => {
+          if (format === 'png') {
+            exportCanvas.toBlob((blob) => {
+              downloadBlob(blob, `${outFilename}.png`);
+              resolveB();
+            }, 'image/png');
+          } else if (format === 'webp') {
+            exportCanvas.toBlob((blob) => {
+              downloadBlob(blob, `${outFilename}.webp`);
+              resolveB();
+            }, 'image/webp');
+          } else {
+            const quality = parseInt(el.batchSliderJpegQuality.value, 10) / 100.0;
+            exportCanvas.toBlob((blob) => {
+              downloadBlob(blob, `${outFilename}.jpg`);
+              resolveB();
+            }, 'image/jpeg', quality);
+          }
+        });
+      }
+
+      item.status = 'success';
+    } catch (err) {
+      console.error(`Error processing batch file ${item.file.name}:`, err);
+      item.status = 'error';
+      item.errorMsg = err.message || 'Unknown processing error';
+    }
+
+    updateBatchUI();
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  isProcessingBatch = false;
+  toggleBatchSidebarLock(false);
+
+  el.batchPercentage.textContent = '100%';
+  el.batchProgressBar.style.width = '100%';
+  el.batchStatusTitle.textContent = 'Processing Completed';
+
+  const successes = batchQueue.filter(item => item.status === 'success').length;
+  const errors = batchQueue.filter(item => item.status === 'error').length;
+  showToast(`Batch conversion complete! ${successes} succeeded, ${errors} failed.`);
+}
+
+function toggleBatchSidebarLock(lock) {
+  el.batchSelectPreset.disabled = lock;
+  el.batchSelectExportFormat.disabled = lock;
+  el.batchSliderJpegQuality.disabled = lock;
+  el.batchInputSuffix.disabled = lock;
+  el.btnBatchStart.disabled = lock;
+  el.btnBatchClear.disabled = lock;
+  
+  if (lock) {
+    el.btnBatchStart.textContent = 'Processing...';
+    el.btnBatchStart.style.opacity = '0.7';
+    el.btnBatchClear.style.opacity = '0.5';
+  } else {
+    el.btnBatchStart.textContent = 'Start Batch Processing';
+    el.btnBatchStart.style.opacity = '1';
+    el.btnBatchClear.style.opacity = '1';
+  }
+}
+
+function setupPresetEventListeners() {
+  el.selectPreset.addEventListener('change', (e) => {
+    const presetId = e.target.value;
+    if (presetId === 'custom-modified') return;
+    
+    applyPresetToUI(presetId);
+    
+    const isCustom = getCustomPresets().hasOwnProperty(presetId);
+    el.customPresetActions.style.display = isCustom ? 'flex' : 'none';
+    removeCustomModifiedOption();
+  });
+
+  el.btnSavePreset.addEventListener('click', () => {
+    const name = el.inputPresetName.value.trim();
+    if (!name) {
+      showToast('Please enter a name for the preset.', 'error');
+      return;
+    }
+
+    const opt = {
+      toneMapper: renderOptions.toneMapper,
+      exposure: renderOptions.exposure,
+      gamma: renderOptions.gamma,
+      contrast: renderOptions.contrast,
+      sdrBoost: renderOptions.sdrBoost,
+      sdrWhite: renderOptions.sdrWhite,
+      targetPeak: renderOptions.targetPeak,
+      autoExposureCorrect: renderOptions.autoExposureCorrect,
+      smartUpmix: renderOptions.smartUpmix,
+      saturation: renderOptions.saturation,
+      highlights: renderOptions.highlights,
+      shadows: renderOptions.shadows,
+      temp: renderOptions.temp,
+      tint: renderOptions.tint
+    };
+
+    const custom = getCustomPresets();
+    const presetId = 'custom-' + name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    
+    custom[presetId] = {
+      name: name,
+      options: opt
+    };
+
+    saveCustomPresets(custom);
+    populatePresetsDropdowns();
+    
+    el.selectPreset.value = presetId;
+    el.customPresetActions.style.display = 'flex';
+    el.inputPresetName.value = '';
+    removeCustomModifiedOption();
+    showToast(`Preset "${name}" saved successfully!`);
+  });
+
+  el.btnDeletePreset.addEventListener('click', () => {
+    const presetId = el.selectPreset.value;
+    const custom = getCustomPresets();
+    if (custom.hasOwnProperty(presetId)) {
+      const name = custom[presetId].name;
+      delete custom[presetId];
+      saveCustomPresets(custom);
+      populatePresetsDropdowns();
+      
+      el.selectPreset.value = 'aces-filmic';
+      applyPresetToUI('aces-filmic');
+      el.customPresetActions.style.display = 'none';
+      showToast(`Preset "${name}" deleted.`);
+    }
+  });
+
+  const sidebarEl = document.querySelector('.sidebar');
+  if (sidebarEl) {
+    const handleSettingChange = (e) => {
+      if (e.target.id !== 'input-preset-name' && e.target.id !== 'select-preset') {
+        markPresetModified();
+      }
+    };
+    sidebarEl.addEventListener('input', handleSettingChange);
+    sidebarEl.addEventListener('change', handleSettingChange);
+  }
+}
+
+function setupBatchEventListeners() {
+  initTabs();
+
+  el.batchDropzone.addEventListener('click', () => {
+    if (isProcessingBatch) return;
+    el.batchFileInput.click();
+  });
+  el.btnBatchSelectFiles.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isProcessingBatch) return;
+    el.batchFileInput.click();
+  });
+  el.btnBatchSelectFolder.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isProcessingBatch) return;
+    el.batchFolderInput.click();
+  });
+
+  el.batchFileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      addFilesToBatch(files);
+    }
+  });
+
+  el.batchFolderInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      addFilesToBatch(files);
+    }
+  });
+
+  el.batchDropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (isProcessingBatch) return;
+    el.batchDropzone.classList.add('dragover');
+  });
+
+  el.batchDropzone.addEventListener('dragleave', () => {
+    el.batchDropzone.classList.remove('dragover');
+  });
+
+  el.batchDropzone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (isProcessingBatch) return;
+    el.batchDropzone.classList.remove('dragover');
+
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      const entries = [];
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file') {
+          const entry = item.webkitGetAsEntry();
+          if (entry) entries.push(entry);
+        }
+      }
+
+      if (entries.length > 0) {
+        showLoading('Reading folder contents...');
+        try {
+          const files = await getAllFilesFromEntries(entries);
+          addFilesToBatch(files);
+        } catch (err) {
+          console.error(err);
+          showToast('Failed to read folder contents.', 'error');
+        } finally {
+          hideLoading();
+        }
+        return;
+      }
+    }
+
+    if (e.dataTransfer.files.length > 0) {
+      addFilesToBatch(Array.from(e.dataTransfer.files));
+    }
+  });
+
+  el.batchSelectExportFormat.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (val === 'jpeg') {
+      el.batchJpegQualityGroup.style.display = 'block';
+    } else {
+      el.batchJpegQualityGroup.style.display = 'none';
+    }
+  });
+
+  el.batchSliderJpegQuality.addEventListener('input', (e) => {
+    el.batchValJpegQuality.textContent = `${e.target.value}%`;
+  });
+
+  el.btnBatchClear.addEventListener('click', () => {
+    if (isProcessingBatch) return;
+    batchQueue = [];
+    updateBatchUI();
+    el.batchProgressBar.style.width = '0%';
+    el.batchPercentage.textContent = '0%';
+    el.batchStatusTitle.textContent = 'Ready to Process';
+    showToast('Batch list cleared.');
+  });
+
+  el.btnBatchStart.addEventListener('click', () => {
+    if (isProcessingBatch) return;
+    if (batchQueue.length === 0) {
+      showToast('Queue is empty. Load files first.', 'warning');
+      return;
+    }
+    processBatch();
+  });
+}
+
 // Initialize Application
 function init() {
   // Set up WebGL2 Renderer
@@ -435,6 +1338,12 @@ function init() {
   setupEventListeners();
   updateToneMapWhite();
   updateOperatorInfoCard(renderOptions.toneMapper);
+  
+  // Presets and Batch Converter Initialization
+  populatePresetsDropdowns();
+  setupPresetEventListeners();
+  setupBatchEventListeners();
+  el.selectPreset.value = 'aces-filmic';
   
   // Load synthetic HDR by default on startup
   loadSyntheticImage();

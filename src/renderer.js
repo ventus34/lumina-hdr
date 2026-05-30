@@ -657,6 +657,12 @@ export class WebGLRenderer {
       flippedPixels.set(pixels.subarray(srcRow, srcRow + rowBytes), dstRow);
     }
 
+    // Force alpha to 255 (fully opaque) since the WebGL context is created with alpha: false.
+    // This prevents gl.readPixels from returning 0 alpha on some systems/browsers (like Safari on macOS).
+    for (let i = 3; i < flippedPixels.length; i += 4) {
+      flippedPixels[i] = 255;
+    }
+
     return flippedPixels;
   }
 }

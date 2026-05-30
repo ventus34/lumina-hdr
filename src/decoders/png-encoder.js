@@ -27,14 +27,15 @@ function crc32(data) {
 // Returns a Uint8Array containing the complete Zlib stream (header + compressed data + checksum)
 async function compressDeflate(rawData) {
   const cs = new CompressionStream('deflate');
-  const writer = cs.writable.getWriter();
-  // Write data and close in one go, awaiting both to prevent stream corruption
-  await writer.write(rawData);
-  await writer.close();
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue(rawData);
+      controller.close();
+    }
+  });
 
-
-  // Read all compressed chunks
-  const reader = cs.readable.getReader();
+  const compressedStream = readable.pipeThrough(cs);
+  const reader = compressedStream.getReader();
   const chunks = [];
   let totalSize = 0;
   while (true) {
@@ -53,6 +54,7 @@ async function compressDeflate(rawData) {
   }
   return result;
 }
+
 
 // Write a PNG chunk: [Length (4B)][Type (4B)][Data (NB)][CRC (4B)]
 function writeChunk(typeStr, dataBytes) {
@@ -252,8 +254,8 @@ function buildPngRawData(width, height, floatData, bitDepth, options) {
       let b = floatData[srcIdx + 2];
       let a = floatData[srcIdx + 3];
 
-      // Guard against NaN / undefined / missing alpha
-      if (isNaN(a) || a === undefined) a = 1.0;
+      // Guard against NaN / undefined / missing alpha / zero alpha from HDR screenshots
+      if (isNaN(a) || a === undefined || options.forceOpaque) a = 1.0;
 
       let ri, gi, bi, ai;
 
@@ -369,8 +371,22 @@ export async function encodePNG(width, height, floatData, options) {
   const type = options.type || 'hdr';
   const transfer = options.transfer || 'linear';
 
+  // Check if there is any non-zero alpha in the input data.
+  // Many HDR screenshots (e.g. JXR, EXR) contain all-zero alpha channel values,
+  // which would make the exported PNG completely transparent/blank.
+  let hasValidAlpha = false;
+  for (let i = 3; i < floatData.length; i += 4) {
+    if (floatData[i] > 0.0) {
+      hasValidAlpha = true;
+      break;
+    }
+  }
+
   // 1. Build uncompressed scanline data
-  const rawData = buildPngRawData(width, height, floatData, bitDepth, options);
+  const rawData = buildPngRawData(width, height, floatData, bitDepth, {
+    ...options,
+    forceOpaque: !hasValidAlpha
+  });
 
   // 2. Compress scanline data using browser-native DEFLATE (Zlib format)
   const idatPayload = await compressDeflate(rawData);
