@@ -1,0 +1,98 @@
+[
+  {
+    "file": "Forza_Horizon_6_native_hdr_scene1.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.155801562499999
+  },
+  {
+    "file": "Forza_Horizon_6_native_hdr_scene2.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.4770109375
+  },
+  {
+    "file": "Ghost_of_Tsushima_native_hdr_scene1.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.936694921874999
+  },
+  {
+    "file": "Ghost_of_Tsushima_native_hdr_scene2.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.943434960937498
+  },
+  {
+    "file": "Ghost_of_Tsushima_native_hdr_scene3.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 13.059716406249999
+  },
+  {
+    "file": "Indiana_Jones_And_The_Great_Circle_native_hdr_scene1.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 25.812520703125
+  },
+  {
+    "file": "Indiana_Jones_And_The_Great_Circle_native_hdr_scene2.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 15.143118359374999
+  },
+  {
+    "file": "Indiana_Jones_And_The_Great_Circle_native_hdr_scene3.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 24.7148265625
+  },
+  {
+    "file": "Indiana_Jones_And_The_Great_Circle_native_hdr_scene4.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 25.451451171875
+  },
+  {
+    "file": "Indiana_Jones_And_The_Great_Circle_native_hdr_scene5.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 16.546020312499998
+  },
+  {
+    "file": "Neverness_To_Everness_rtx_hdr_scene1.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.53321875
+  },
+  {
+    "file": "Neverness_To_Everness_rtx_hdr_scene2.jxr",
+    "width": 3840,
+    "height": 2160,
+    "alpha": "opaque",
+    "sourceAlphaDecoded": false,
+    "maximumLuminance": 12.53321875
+  }
+]

@@ -330,6 +330,10 @@ export class ProcessingClient {
       }
     });
     worker.addEventListener('error', (event) => {
+      // A cancelled job may already have replaced this worker in the slot by
+      // the time its final error event is delivered. Never let that stale
+      // event terminate the replacement worker or reject its job.
+      if (slot.worker !== worker) return;
       const job = slot.job;
       if (!job) return;
       const error = new ProcessingError(event.message || 'The processing worker stopped unexpectedly.', {
@@ -339,6 +343,7 @@ export class ProcessingClient {
       this.#finish(slot, job, false, error);
     });
     worker.addEventListener('messageerror', () => {
+      if (slot.worker !== worker) return;
       const job = slot.job;
       if (!job) return;
       this.#terminateSlot(slot);

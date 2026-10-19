@@ -26,6 +26,10 @@ class FakeWorker {
     for (const listener of this.listeners.get('message') || []) listener({ data: { id: this.messages[index].message.id, ...message } });
   }
 
+  emit(type, event = {}) {
+    for (const listener of this.listeners.get(type) || []) listener(event);
+  }
+
   terminate() {
     this.terminated = true;
   }
@@ -94,6 +98,34 @@ test('cancelling a running task terminates its worker and the pool recovers', as
   workers[1].reply(0, { ok: true, result: 'recovered' });
   assert.equal(await next, 'recovered');
   client.dispose();
+});
+
+test('late errors from a cancelled worker cannot terminate its replacement', async () => {
+  for (const eventType of ['error', 'messageerror']) {
+    const { client, workers } = makeClient();
+    const abortController = new AbortController();
+    const cancelled = client.run('slow', {}, { signal: abortController.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    abortController.abort('replace worker');
+    await assert.rejects(cancelled, { name: 'AbortError', message: 'replace worker' });
+
+    const replacement = client.run('next', {});
+    const replacementOutcome = replacement.then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(workers.length, 2);
+    assert.equal(client.stats.active, 1);
+
+    workers[0].emit(eventType, { message: 'late event from terminated worker' });
+
+    assert.equal(workers[1].terminated, false, `${eventType} from the old worker must not terminate its replacement`);
+    assert.equal(client.stats.active, 1, `${eventType} from the old worker must not finish the replacement job`);
+    workers[1].reply(0, { ok: true, result: 'replacement completed' });
+    assert.deepEqual(await replacementOutcome, { value: 'replacement completed' });
+    client.dispose();
+  }
 });
 
 test('aborting a slow native fallback rejects immediately and releases the slot on settlement', async () => {

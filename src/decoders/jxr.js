@@ -64,11 +64,14 @@ export async function decodeJXR(buffer, { signal } = {}) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (bytes.byteLength < 16) throw new Error('JPEG XR file is too short.');
   const image = codec.decode(bytes);
-  return decodeJXRImage(image, { signal });
+  // jpegxr 0.3.0 calls Copy with the default uAlphaMode=0. The pixel format
+  // still advertises RGBA, but the alpha slots are unwritten WASM heap bytes.
+  // Never interpret those bytes as decoded alpha (they change on codec reuse).
+  return decodeJXRImage(image, { signal, alphaDecoded: false });
 }
 
 /** Convert a jpegxr library result after validating its declared layout. */
-export function decodeJXRImage(image, { signal } = {}) {
+export function decodeJXRImage(image, { signal, alphaDecoded = true } = {}) {
   throwIfAborted(signal);
   if (!image || !image.pixelInfo || !(image.bytes instanceof Uint8Array)) throw new Error('JPEG XR decoder returned an invalid image.');
 
@@ -77,11 +80,15 @@ export function decodeJXRImage(image, { signal } = {}) {
   const { channels, hasAlpha, bitDepth, bgr } = pixelInfo;
   const colorFormat = String(pixelInfo.colorFormat || '').toUpperCase();
   const premultiplied = Boolean(pixelInfo.premultipliedAlpha ?? pixelInfo.premultipledAlpha);
+  const readAlpha = hasAlpha && alphaDecoded;
   const gray = isGrayFormat(colorFormat);
   if (![1, 2, 3, 4].includes(channels)) throw new Error(`JPEG XR channel count ${channels} is unsupported.`);
   if (channels <= 2 && !gray) throw new Error(`JPEG XR single/dual-channel format ${colorFormat || '(unknown)'} is unsupported.`);
   if (channels >= 3 && !['RGB', 'BGR'].includes(colorFormat)) throw new Error(`JPEG XR color format ${colorFormat || '(unknown)'} is unsupported.`);
   if ((channels === 2 || channels === 4) !== Boolean(hasAlpha)) throw new Error('JPEG XR channel count conflicts with its alpha metadata.');
+  if (hasAlpha && !alphaDecoded && premultiplied) {
+    throw new Error('JPEG XR premultiplied color requires alpha decoding, which this JPEG XR backend does not provide.');
+  }
 
   const depthInfo = {
     '8': { bytes: 1, max: 255, float: false },
@@ -107,7 +114,7 @@ export function decodeJXRImage(image, { signal } = {}) {
     let r;
     let g;
     let b;
-    let alpha = hasAlpha ? 0 : 1;
+    let alpha = readAlpha ? 0 : 1;
     const read = (component) => {
       const offset = (source + component) * depthInfo.bytes;
       if (bitDepth === '32Float') return view.getFloat32(offset, true);
@@ -118,14 +125,14 @@ export function decodeJXRImage(image, { signal } = {}) {
 
     if (gray) {
       let grayValue = read(0);
-      if (hasAlpha) alpha = depthInfo.float ? read(1) : read(1) / depthInfo.max;
+      if (readAlpha) alpha = depthInfo.float ? read(1) : read(1) / depthInfo.max;
       if (premultiplied && alpha > 0) grayValue /= alpha;
       r = g = b = depthInfo.float ? grayValue : srgbEotf(grayValue, depthInfo.max);
     } else {
       let first = read(0);
       let second = read(1);
       let third = read(2);
-      if (hasAlpha) alpha = depthInfo.float ? read(3) : read(3) / depthInfo.max;
+      if (readAlpha) alpha = depthInfo.float ? read(3) : read(3) / depthInfo.max;
       if (premultiplied && alpha > 0) {
         first /= alpha;
         second /= alpha;
@@ -158,9 +165,12 @@ export function decodeJXRImage(image, { signal } = {}) {
     sourceHDR,
     decodedHDR: sourceHDR,
     isHDR: sourceHDR,
-    alpha: hasAlpha ? 'straight' : 'opaque',
+    alpha: readAlpha ? 'straight' : 'opaque',
+    sourceAlphaDecoded: !hasAlpha || alphaDecoded,
     luminanceUnit: 'relative',
     sourceColorAssumption,
-    warnings: [sourceColorAssumption],
+    warnings: [sourceColorAssumption, ...(hasAlpha && !alphaDecoded
+      ? ['This JPEG XR backend does not decode the alpha channel; the image is loaded as opaque. RGB values are preserved.']
+      : [])],
   };
 }

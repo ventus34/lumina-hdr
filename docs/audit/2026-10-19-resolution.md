@@ -2,6 +2,8 @@
 
 Data: 19 października 2026. Punkt odniesienia: `f984d56263d0cb169ac014eaa0dc172120a4ea3d`.
 
+Po tej weryfikacji użytkownik zgłosił regresję kolejnych importów JXR. Przyczynę, dodatkową naprawę i nowe testy opisuje [uzupełnienie dotyczące przełączania przykładów](2026-10-19-jxr-switching.md).
+
 Raport opisuje wdrożone zmiany i ich weryfikację. [Pierwotny audyt](2026-10-19.md) oraz jego wyniki pozostają zapisem stanu przed naprawami. Generowany katalog `dist/` jest ignorowany przez Git; opublikowany punkt wejścia Pages, `docs/index.html`, pozostaje wersjonowany.
 
 Pracę rozdzielono między subagentów odpowiedzialnych za kodeki, kolory i eksport, integrację aplikacji, wydajność, narzędzia i dystrybucję oraz dostępność. Integracja obejmowała dodatkowy przegląd i testy rzeczywistych ścieżek przeglądarkowych. Poniższa tabela opisuje wdrożone rozwiązania; nie oznacza certyfikacji wszystkich formatów, przeglądarek ani wyświetlaczy HDR.

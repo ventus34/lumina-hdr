@@ -244,6 +244,40 @@ test('decodeImageBuffer reports worker-computed Rec.709 max luminance', async ()
   assert.ok(Math.abs(decoded.maxLuminance - 1) < 0.01);
 });
 
+test('JXR backend with unwritten alpha ignores heap contents and explicitly reports opaque output', () => {
+  const values = [NaN, Infinity, -3, 8, 0];
+  const floats = new Float32Array(values.flatMap(alpha => [0.25, 0.5, 4, alpha]));
+  const image = {
+    width: values.length, height: 1,
+    pixelInfo: { channels: 4, colorFormat: 'RGB', bitDepth: '32Float', bitsPerPixel: 128, hasAlpha: true },
+    bytes: new Uint8Array(floats.buffer)
+  };
+  const decoded = decodeJXRImage(image, { alphaDecoded: false });
+  for (let i = 0; i < values.length; i++) {
+    assert.deepEqual([...decoded.data.slice(i * 4, i * 4 + 4)], [0.25, 0.5, 4, 1]);
+  }
+  assert.equal(decoded.alpha, 'opaque');
+  assert.equal(decoded.sourceAlphaDecoded, false);
+  assert.ok(decoded.warnings.some(warning => /does not decode the alpha channel/.test(warning)));
+  assert.throws(() => decodeJXRImage(image), /NaN or Infinity/);
+  floats[0] = NaN;
+  assert.throws(() => decodeJXRImage(image, { alphaDecoded: false }), /NaN or Infinity/);
+});
+
+test('JXR decoded alpha stays validated and a genuine zero-alpha pixel is preserved', () => {
+  const floats = new Float32Array([0.25, 0.5, 4, 0]);
+  const image = {
+    width: 1, height: 1,
+    pixelInfo: { channels: 4, colorFormat: 'RGB', bitDepth: '32Float', bitsPerPixel: 128, hasAlpha: true },
+    bytes: new Uint8Array(floats.buffer)
+  };
+  assert.equal(decodeJXRImage(image).data[3], 0);
+  floats[3] = 2;
+  assert.throws(() => decodeJXRImage(image), /alpha outside/);
+  image.pixelInfo.premultipliedAlpha = true;
+  assert.throws(() => decodeJXRImage(image, { alphaDecoded: false }), /requires alpha decoding/);
+});
+
 test('aborted native bitmap fallback closes a bitmap that resolves after cancellation', async () => {
   const originalCreateImageBitmap = globalThis.createImageBitmap;
   let resolveBitmap;

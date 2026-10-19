@@ -414,7 +414,9 @@ async function loadExampleScene(index) {
     await new Promise(resolve => setTimeout(resolve, 0));
     const res = await fetch(`${EXAMPLES_BASE_PATH}${scene.filename}`, { signal: request.signal });
     if (!res.ok) throw new Error(`HTTP error fetching example image: ${res.status}`);
-    const decoded = await processingClient.decodeImage(await res.blob(), { signal: request.signal });
+    const blob = await res.blob();
+    const file = new File([blob], scene.filename, { type: blob.type });
+    const decoded = await processingClient.decodeImage(file, { signal: request.signal });
     if (!request.isCurrent()) return;
 
     const warnings = commitDecodedImage(scene.filename, decoded);

@@ -37,6 +37,8 @@ Lumina HDR is a feature-rich, client-side web application designed for viewing, 
 * **Radiance HDR (`.hdr`):** Exports RGBE pixels with three mantissa bytes and a shared exponent; choose original pixels or processed output explicitly.
 * **JPEG & WebP:** Supports standard 8-bit SDR compressed exports with configurable quality.
 
+The current JPEG XR backend does not decode the source alpha channel. JXR images are loaded as opaque with an explicit warning; RGB values are preserved. Premultiplied JXR that requires unavailable alpha is rejected. PNG and EXR transparency handling is unchanged.
+
 ---
 
 ## 🛠️ Tech Stack & Used Libraries
