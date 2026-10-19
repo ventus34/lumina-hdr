@@ -1,19 +1,32 @@
 {
   "name": "lumina-hdr",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "^24.19.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "build:single": "vite build --config vite.config.js",
-    "preview": "vite preview"
+    "build": "vite build --mode portable",
+    "build:portable": "vite build --mode portable",
+    "build:pages": "node scripts/validate-examples.mjs && vite build --mode pages && node scripts/copy-pages-build.mjs",
+    "build:single": "npm run build:portable",
+    "preview": "vite preview",
+    "test": "node --test",
+    "lint": "eslint --config scripts/eslint.config.js vite.config.js src scripts tests",
+    "check": "npm run lint && npm test",
+    "audit": "npm audit --audit-level=high"
   },
   "devDependencies": {
-    "vite": "^8.0.12",
-    "vite-plugin-singlefile": "^2.3.3"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.4"
   },
   "dependencies": {
+    "@jsquash/avif": "^2.1.1",
     "jpegxr": "^0.3.0",
     "parse-exr": "^1.0.2"
   }

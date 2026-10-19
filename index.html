@@ -20,19 +20,19 @@
     </div>
 
     <!-- Header Navigation Tabs -->
-    <nav class="header-nav">
-      <button id="btn-tab-viewer" class="tab-btn active">
+    <nav class="header-nav" role="tablist" aria-label="Application views" aria-orientation="horizontal">
+      <button id="btn-tab-viewer" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="view-viewer" tabindex="0">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
         Interactive Viewer
       </button>
-      <button id="btn-tab-batch" class="tab-btn">
+      <button id="btn-tab-batch" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="view-batch" tabindex="-1">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
         Batch Converter
       </button>
     </nav>
 
     <div class="header-actions">
-      <select id="select-synthetic-pattern" class="select-synthetic">
+      <select id="select-synthetic-pattern" class="select-synthetic" aria-label="Synthetic image pattern">
         <option value="cosmic">Cosmic HDR Scene (Default)</option>
         <option value="macbeth">Macbeth & Calibration Grids</option>
         <option value="landscape">Sunset Mountain Landscape</option>
@@ -50,7 +50,7 @@
   <main>
     
     <!-- VIEW 1: INTERACTIVE PREVIEW -->
-    <div id="view-viewer" class="panel-view active">
+    <div id="view-viewer" class="panel-view active" role="tabpanel" aria-labelledby="btn-tab-viewer" aria-hidden="false" tabindex="0">
       
       <!-- Side Control Panel -->
       <aside class="sidebar">
@@ -58,7 +58,7 @@
         <!-- File Upload -->
         <section class="control-section">
           <h2>Source File</h2>
-          <div id="dropzone" class="file-dropzone">
+          <div id="dropzone" class="file-dropzone" role="button" tabindex="0" aria-label="Choose or drop image files" aria-controls="file-input">
             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
             </svg>
@@ -87,7 +87,7 @@
         <section class="control-section">
           <h2>Example Gallery</h2>
           <div class="control-group">
-            <select id="select-example-scene" class="select-example">
+            <select id="select-example-scene" class="select-example" aria-label="Example scene">
               <option value="" disabled selected>Select an example game scene...</option>
             </select>
           </div>
@@ -247,23 +247,23 @@
           
           <!-- HDR Status and Capability Card -->
           <div class="hdr-status-card" id="hdr-status-card">
-            <div class="hdr-status-header" id="hdr-status-header" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+            <button type="button" class="hdr-status-header accordion-trigger" id="hdr-status-header" aria-expanded="false" aria-controls="hdr-status-content">
               <span class="hdr-status-title" style="margin-bottom: 0;">HDR Capabilities Status</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron" id="hdr-status-chevron" style="transition: transform 0.2s ease;"><path d="m6 9 6 6 6-6"/></svg>
-            </div>
+            </button>
             
             <div class="hdr-status-content" id="hdr-status-content" style="display: none; flex-direction: column; gap: 10px; margin-top: 10px;">
               <div class="hdr-status-row">
                 <span class="status-label">Browser API:</span>
-                <span id="hdr-api-status" class="status-badge status-loading">Checking...</span>
+                <span id="hdr-api-status" class="status-badge status-loading" role="status" aria-live="polite">Checking...</span>
               </div>
               <div class="hdr-status-row">
                 <span class="status-label">OS & Display:</span>
-                <span id="hdr-display-status" class="status-badge status-loading">Checking...</span>
+                <span id="hdr-display-status" class="status-badge status-loading" role="status" aria-live="polite">Checking...</span>
               </div>
               <div class="hdr-status-row">
                 <span class="status-label">Active Mode:</span>
-                <span id="hdr-active-mode-status" class="status-badge status-sdr">SDR Mode</span>
+                <span id="hdr-active-mode-status" class="status-badge status-sdr" role="status" aria-live="polite">SDR Mode</span>
               </div>
 
               <!-- Warning notice shown when HDR mode is checked -->
@@ -292,10 +292,10 @@
                 </div>
               </div>
               
-              <div id="hdr-instructions-toggle" class="hdr-instructions-toggle">
+              <button type="button" id="hdr-instructions-toggle" class="hdr-instructions-toggle accordion-trigger" aria-expanded="false" aria-controls="hdr-instructions-content">
                 <span>Setup Instructions</span>
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron"><path d="m6 9 6 6 6-6"/></svg>
-              </div>
+              </button>
               
               <div id="hdr-instructions-content" class="hdr-instructions-content" style="display: none;">
                 <ol>
@@ -342,10 +342,10 @@
 
           <!-- Operator Info Card (Collapsible) -->
           <div class="operator-info-card" id="operator-info-card">
-            <div class="operator-info-header" id="operator-info-header">
+            <button type="button" class="operator-info-header accordion-trigger" id="operator-info-header" aria-expanded="false" aria-controls="operator-info-content">
               <span class="info-title">About this Operator</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron" id="operator-info-chevron" style="transition: transform 0.2s ease;"><path d="m6 9 6 6 6-6"/></svg>
-            </div>
+            </button>
             <div class="operator-info-content" id="operator-info-content" style="display: none;">
               <h3 id="operator-info-name">ACES Filmic</h3>
               <p id="operator-info-desc">Academy Color Encoding System standard. A high-contrast cinematic S-curve with natural highlight roll-off and rich color retention.</p>
@@ -450,21 +450,42 @@
             </div>
             <select id="select-export-format">
               <option value="png">PNG (SDR, 8-bit)</option>
-              <option value="png10sdr">PNG (SDR, 10-bit)</option>
-              <option value="png10pq">PNG (HDR, 10-bit PQ BT.2100)</option>
-              <option value="png10hlg">PNG (HDR, 10-bit HLG BT.2100)</option>
-              <option value="png10hdr">PNG (HDR, 10-bit Linear Rec.709)</option>
-              <option value="png12sdr">PNG (SDR, 12-bit)</option>
-              <option value="png12pq">PNG (HDR, 12-bit PQ BT.2100)</option>
-              <option value="png12hlg">PNG (HDR, 12-bit HLG BT.2100)</option>
-              <option value="png12hdr">PNG (HDR, 12-bit Linear Rec.709)</option>
+              <option value="png10sdr">PNG (SDR, 10-bit precision in 16-bit container)</option>
+              <option value="png10pq">PNG (HDR, 10-bit precision in 16-bit container, PQ BT.2100)</option>
+              <option value="png10hlg">PNG (HDR, 10-bit precision in 16-bit container, HLG BT.2100)</option>
+              <option value="png10hdr">PNG (HDR, 10-bit precision in 16-bit container, Linear Rec.709)</option>
+              <option value="png12sdr">PNG (SDR, 12-bit precision in 16-bit container)</option>
+              <option value="png12pq">PNG (HDR, 12-bit precision in 16-bit container, PQ BT.2100)</option>
+              <option value="png12hlg">PNG (HDR, 12-bit precision in 16-bit container, HLG BT.2100)</option>
+              <option value="png12hdr">PNG (HDR, 12-bit precision in 16-bit container, Linear Rec.709)</option>
               <option value="png16sdr">PNG (SDR, 16-bit)</option>
               <option value="png16pq">PNG (HDR, 16-bit PQ BT.2100)</option>
               <option value="png16hlg">PNG (HDR, 16-bit HLG BT.2100)</option>
               <option value="png16hdr">PNG (HDR, 16-bit Linear Rec.709)</option>
               <option value="webp">WebP (SDR, 8-bit)</option>
               <option value="jpeg">JPEG (SDR, 8-bit)</option>
-              <option value="hdr">Radiance HDR (HDR, 32-bit Float)</option>
+              <option value="hdr">Radiance HDR (RGBE, HDR)</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="select-export-alpha-mode">Transparency</label>
+            </div>
+            <select id="select-export-alpha-mode">
+              <option value="preserve" selected>Preserve transparency</option>
+              <option value="flatten">Flatten on white</option>
+              <option value="opaque">Make opaque, keep pixel colors</option>
+            </select>
+          </div>
+
+          <div class="control-group export-pixel-mode-group" id="export-pixel-mode-group" hidden>
+            <div class="control-header">
+              <label class="control-label" for="select-export-pixel-mode">Radiance HDR pixels</label>
+            </div>
+            <select id="select-export-pixel-mode">
+              <option value="processed" selected>Apply image adjustments</option>
+              <option value="original">Export original pixel values</option>
             </select>
           </div>
 
@@ -478,7 +499,7 @@
 
           <div style="display: flex; gap: 8px; margin-top: 16px;">
             <button id="btn-export" class="btn btn-primary" style="flex: 1;">Export Image</button>
-            <button id="btn-reset" class="btn btn-secondary" title="Reset View">
+            <button id="btn-reset" class="btn btn-secondary" type="button" title="Reset view" aria-label="Reset zoom and image position">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             </button>
           </div>
@@ -488,9 +509,9 @@
         <section class="control-sectionHelp" style="padding: 20px; font-size: 12px;">
           <h2 style="font-size: 11px; margin-bottom: 8px;">Navigation & Shortcuts</h2>
           <ul class="help-guide">
-            <li><strong>Zoom:</strong> Mouse wheel / Touchpad</li>
-            <li><strong>Pan:</strong> Click and drag image</li>
-            <li><strong>Comparison (Split-Screen):</strong> Drag the blue slider dividing left/right on the image</li>
+            <li><strong>Zoom:</strong> Mouse wheel or the viewer Zoom buttons; keyboard: + and −</li>
+            <li><strong>Move image:</strong> Drag the image or use the viewer arrow buttons; keyboard: arrow keys when the preview is focused</li>
+            <li><strong>Comparison:</strong> Drag the divider or adjust the Comparison position slider with the keyboard</li>
           </ul>
         </section>
       </aside>
@@ -504,13 +525,13 @@
             <span class="gallery-bar-title">Image Gallery</span>
             <span id="gallery-count" class="gallery-count">0 items</span>
             <div style="flex: 1;"></div>
-            <button id="btn-gallery-prev" class="gallery-nav-btn" title="Previous Image">
+            <button id="btn-gallery-prev" class="gallery-nav-btn" type="button" title="Previous image" aria-label="Previous image">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
             </button>
-            <button id="btn-gallery-next" class="gallery-nav-btn" title="Next Image">
+            <button id="btn-gallery-next" class="gallery-nav-btn" type="button" title="Next image" aria-label="Next image">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6 9-6"/></svg>
             </button>
-            <button id="btn-gallery-close" class="gallery-close-btn" title="Close Gallery">
+            <button id="btn-gallery-close" class="gallery-close-btn" type="button" title="Close gallery" aria-label="Close gallery">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
             </button>
           </div>
@@ -519,7 +540,7 @@
           </div>
         </div>
         
-        <div class="split-instructions">
+        <div class="split-instructions visually-hidden">
           Comparison Slider: Left side is <span>Standard SDR (Clamped)</span>, right side is <span>Processed HDR</span>
         </div>
 
@@ -528,7 +549,30 @@
         <div id="viewport-label-right" class="viewport-label viewport-label-right" style="display: none;">HDR (ACES Filmic)</div>
 
         <div id="canvas-container" class="canvas-wrapper">
-          <canvas id="hdr-canvas"></canvas>
+          <canvas id="hdr-canvas" role="img" aria-label="Image preview. Use the viewer controls to zoom, move the image, or adjust the comparison divider." aria-describedby="canvas-keyboard-help" tabindex="0"></canvas>
+          <details id="viewer-accessible-controls" class="viewer-accessible-controls">
+            <summary>Viewer controls</summary>
+            <div class="viewer-controls-body" role="group" aria-label="Image preview controls">
+            <div class="viewer-control-row" role="group" aria-label="Zoom controls">
+              <button type="button" id="a11y-zoom-out" class="viewer-control-button" aria-label="Zoom out">−</button>
+              <button type="button" id="a11y-zoom-in" class="viewer-control-button" aria-label="Zoom in">+</button>
+              <button type="button" id="a11y-reset-view" class="viewer-control-button">Reset view</button>
+            </div>
+            <div class="viewer-pan-controls" role="group" aria-label="Move image">
+              <button type="button" id="a11y-pan-up" class="viewer-control-button" aria-label="Move image up">↑</button>
+              <button type="button" id="a11y-pan-left" class="viewer-control-button" aria-label="Move image left">←</button>
+              <button type="button" id="a11y-pan-down" class="viewer-control-button" aria-label="Move image down">↓</button>
+              <button type="button" id="a11y-pan-right" class="viewer-control-button" aria-label="Move image right">→</button>
+            </div>
+            <div class="viewer-split-control" id="viewer-split-control">
+              <label for="a11y-split-position" id="a11y-split-label">Comparison divider position</label>
+              <input type="range" id="a11y-split-position" min="0" max="100" step="1" value="50" aria-label="Comparison divider position">
+              <output id="a11y-split-value" for="a11y-split-position">50%</output>
+            </div>
+            </div>
+          </details>
+          <span class="visually-hidden" id="canvas-keyboard-help">When this preview is focused, use plus or minus to zoom, arrow keys to move the image, and Home to reset the view.</span>
+          <span class="visually-hidden" id="a11y-viewer-status" role="status" aria-live="polite" aria-atomic="true"></span>
         </div>
 
         <!-- HUD: Pixel Inspector on mouse hover -->
@@ -572,7 +616,7 @@
                   <button class="hist-pill" data-scale="linear" title="Linear Scale">Lin</button>
                 </div>
               </div>
-              <button id="btn-histogram-expand" class="hist-btn-action" title="Expand Histogram">
+              <button id="btn-histogram-expand" class="hist-btn-action" type="button" title="Expand histogram" aria-label="Expand histogram">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
                 </svg>
@@ -580,26 +624,26 @@
             </div>
           </div>
           <div class="histogram-body">
-            <canvas id="histogram-canvas"></canvas>
+            <canvas id="histogram-canvas" role="img" aria-label="Luminance histogram for the current image" aria-describedby="histogram-title"></canvas>
             <div id="histogram-tooltip" class="histogram-tooltip" style="display: none;"></div>
           </div>
         </div>
 
         <!-- Loading Overlay -->
-        <div id="loading-overlay" class="loading-overlay">
+        <div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite" aria-atomic="true">
           <div class="spinner"></div>
           <p id="loading-text" style="font-family: var(--font-display); font-size: 15px; letter-spacing: 0.5px;">Loading WebAssembly decoder...</p>
         </div>
 
         <!-- Toast for Notifications -->
-        <div id="toast" class="toast"></div>
+        <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
       </div>
 
     </div>
 
     <!-- VIEW 2: BATCH CONVERTER -->
-    <div id="view-batch" class="panel-view">
+    <div id="view-batch" class="panel-view" role="tabpanel" aria-labelledby="btn-tab-batch" aria-hidden="true" tabindex="0">
       
       <!-- Side Control Panel -->
       <aside class="sidebar">
@@ -633,21 +677,42 @@
             </div>
             <select id="batch-select-export-format">
               <option value="png">PNG (SDR, 8-bit)</option>
-              <option value="png10sdr">PNG (SDR, 10-bit)</option>
-              <option value="png10pq">PNG (HDR, 10-bit PQ BT.2100)</option>
-              <option value="png10hlg">PNG (HDR, 10-bit HLG BT.2100)</option>
-              <option value="png10hdr">PNG (HDR, 10-bit Linear Rec.709)</option>
-              <option value="png12sdr">PNG (SDR, 12-bit)</option>
-              <option value="png12pq">PNG (HDR, 12-bit PQ BT.2100)</option>
-              <option value="png12hlg">PNG (HDR, 12-bit HLG BT.2100)</option>
-              <option value="png12hdr">PNG (HDR, 12-bit Linear Rec.709)</option>
+              <option value="png10sdr">PNG (SDR, 10-bit precision in 16-bit container)</option>
+              <option value="png10pq">PNG (HDR, 10-bit precision in 16-bit container, PQ BT.2100)</option>
+              <option value="png10hlg">PNG (HDR, 10-bit precision in 16-bit container, HLG BT.2100)</option>
+              <option value="png10hdr">PNG (HDR, 10-bit precision in 16-bit container, Linear Rec.709)</option>
+              <option value="png12sdr">PNG (SDR, 12-bit precision in 16-bit container)</option>
+              <option value="png12pq">PNG (HDR, 12-bit precision in 16-bit container, PQ BT.2100)</option>
+              <option value="png12hlg">PNG (HDR, 12-bit precision in 16-bit container, HLG BT.2100)</option>
+              <option value="png12hdr">PNG (HDR, 12-bit precision in 16-bit container, Linear Rec.709)</option>
               <option value="png16sdr">PNG (SDR, 16-bit)</option>
               <option value="png16pq">PNG (HDR, 16-bit PQ BT.2100)</option>
               <option value="png16hlg">PNG (HDR, 16-bit HLG BT.2100)</option>
               <option value="png16hdr">PNG (HDR, 16-bit Linear Rec.709)</option>
               <option value="webp">WebP (SDR, 8-bit)</option>
               <option value="jpeg">JPEG (SDR, 8-bit)</option>
-              <option value="hdr">Radiance HDR (HDR, 32-bit Float)</option>
+              <option value="hdr">Radiance HDR (RGBE, HDR)</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <div class="control-header">
+              <label class="control-label" for="batch-select-export-alpha-mode">Transparency</label>
+            </div>
+            <select id="batch-select-export-alpha-mode">
+              <option value="preserve" selected>Preserve transparency</option>
+              <option value="flatten">Flatten on white</option>
+              <option value="opaque">Make opaque, keep pixel colors</option>
+            </select>
+          </div>
+
+          <div class="control-group export-pixel-mode-group" id="batch-export-pixel-mode-group" hidden>
+            <div class="control-header">
+              <label class="control-label" for="batch-select-export-pixel-mode">Radiance HDR pixels</label>
+            </div>
+            <select id="batch-select-export-pixel-mode">
+              <option value="processed" selected>Apply image adjustments</option>
+              <option value="original">Export original pixel values</option>
             </select>
           </div>
 
@@ -673,6 +738,9 @@
             <button id="btn-batch-clear" class="btn btn-secondary" style="width: 100%; justify-content: center; margin-top: 10px; font-size: 12px; padding: 8px 12px;">
               Clear List
             </button>
+            <button id="btn-batch-cancel" class="btn btn-secondary" type="button" style="width: 100%; justify-content: center; margin-top: 10px; font-size: 12px; padding: 8px 12px;" disabled>
+              Cancel Processing
+            </button>
           </div>
         </section>
 
@@ -681,7 +749,7 @@
       <!-- Batch File List Viewport Area -->
       <div class="viewport-container batch-viewport" style="padding: 30px; display: flex; flex-direction: column; overflow-y: auto;">
         
-        <div id="batch-dropzone" class="file-dropzone batch-dropzone" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 16px; border: 2px dashed rgba(255, 255, 255, 0.15); min-height: 350px;">
+        <div id="batch-dropzone" class="file-dropzone batch-dropzone" role="group" aria-label="Batch file upload area" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 16px; border: 2px dashed rgba(255, 255, 255, 0.15); min-height: 350px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 16px; filter: drop-shadow(var(--shadow-neon));">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
           </svg>
@@ -707,10 +775,10 @@
           <div class="batch-progress-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
-                <div style="font-family: var(--font-display); font-size: 16px; font-weight: 600;" id="batch-status-title">Ready to Process</div>
-                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;" id="batch-progress-subtitle">0 files queued</div>
+                <div style="font-family: var(--font-display); font-size: 16px; font-weight: 600;" id="batch-status-title" role="status" aria-live="polite">Ready to Process</div>
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;" id="batch-progress-subtitle" role="status" aria-live="polite">0 files queued</div>
               </div>
-              <div id="batch-percentage" style="font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--accent-cyan);">0%</div>
+              <div id="batch-percentage" role="progressbar" aria-label="Batch conversion progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--accent-cyan);">0%</div>
             </div>
             
             <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;">
@@ -719,16 +787,16 @@
           </div>
 
           <!-- Files List Table -->
-          <div style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--panel-border); border-radius: 12px; min-height: 0;">
+          <div class="batch-table-scroll" style="flex: 1; overflow-y: auto; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--panel-border); border-radius: 12px; min-height: 0;">
             <table class="batch-table">
               <thead>
                 <tr>
-                  <th style="width: 40px; text-align: center;">#</th>
-                  <th>Name</th>
-                  <th style="width: 120px;">Format</th>
-                  <th style="width: 100px;">Size</th>
-                  <th style="width: 140px;">Status</th>
-                  <th style="width: 60px; text-align: center;">Action</th>
+                  <th scope="col" style="width: 40px; text-align: center;">#</th>
+                  <th scope="col">Name</th>
+                  <th scope="col" style="width: 120px;">Format</th>
+                  <th scope="col" style="width: 100px;">Size</th>
+                  <th scope="col" style="width: 140px;">Status</th>
+                  <th scope="col" style="width: 60px; text-align: center;">Action</th>
                 </tr>
               </thead>
               <tbody id="batch-table-body">

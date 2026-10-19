@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-19",
+  "baseline": "f984d56263d0cb169ac014eaa0dc172120a4ea3d",
+  "nodeTests": {
+    "passed": 72,
+    "failed": 0
+  },
+  "browser": {
+    "engine": "Chromium 155 in-app browser",
+    "pipelinePassed": 15,
+    "pipelineFailed": 0,
+    "pq512Nits": {
+      "expected": 92.698,
+      "observed": 92.705
+    },
+    "pq768Nits": {
+      "expected": 990.014,
+      "observed": 989.973
+    },
+    "hlg512Nits": {
+      "expected": 50.816,
+      "observed": 50.818
+    },
+    "mobileViewport": {
+      "width": 390,
+      "height": 844,
+      "documentScrollWidth": 384
+    },
+    "directFileUrlTested": false
+  },
+  "npmVulnerabilities": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "artifacts": [
+    {
+      "path": "dist/index.html",
+      "bytes": 4009350,
+      "sha256": "83a5c559799f0d4a996eac67ed7dd85e0b3fd5fbf26b3da5dc3df213b6e4581b"
+    },
+    {
+      "path": "docs/index.html",
+      "bytes": 4009818,
+      "sha256": "ba47231db6b0649b37c3ff086cd4ef58d8a94b7602f54995fc94dd92fbbfc628"
+    }
+  ],
+  "portableExternalHtmlAssets": [],
+  "limitations": [
+    "Native HDR hardware output and full cross-browser matrix not tested",
+    "Direct file URL testing prohibited by browser tool policy",
+    "8K browser peak memory and full WASM fuzzing not performed",
+    "No full screen-reader/WCAG audit"
+  ]
+}

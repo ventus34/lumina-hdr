@@ -1,0 +1,70 @@
+{
+  "baseline": "f984d56263d0cb169ac014eaa0dc172120a4ea3d",
+  "passed": 2,
+  "failed": 7,
+  "results": [
+    {
+      "name": "Control: valid RGBE round trip",
+      "status": "PASS",
+      "detail": [
+        1,
+        0.5,
+        2,
+        1
+      ]
+    },
+    {
+      "name": "SDR adapter must return linear RGB",
+      "status": "FAIL",
+      "detail": "sRGB 128: observed 0.501960813999176, expected linear 0.21586050011389926; clamp preview becomes 186/255"
+    },
+    {
+      "name": "AVIF adapter must convert BT.2020 primaries to working Rec.709",
+      "status": "FAIL",
+      "detail": "observed RGB 12.29222297668457,0,0; expected approximately [20.411125985019485, -1.5309963989170534, -0.2231161432095017] in linear Rec.709"
+    },
+    {
+      "name": "AVIF canvas error must reject, not leave a pending Promise",
+      "status": "FAIL",
+      "detail": "outcome=pending; escaped callback errors=audit: unsupported HDR readback\n+ actual - expected\n\n+ 'pending'\n- 'rejected'\n"
+    },
+    {
+      "name": "RGBE decoder must reject missing uncompressed pixels",
+      "status": "FAIL",
+      "detail": "Missing expected exception: A header with no pixel payload was accepted as an image"
+    },
+    {
+      "name": "RGBE decoder must reject missing final RLE run value",
+      "status": "FAIL",
+      "detail": "Missing expected exception: The final exponent run has no value, but the decoder accepted it"
+    },
+    {
+      "name": "PNG encoder must preserve an intentionally transparent image",
+      "status": "FAIL",
+      "detail": "alpha observed=65535, expected=0\n\n65535 !== 0\n"
+    },
+    {
+      "name": "JXR adapter must expand supported grayscale or explicitly reject it",
+      "status": "FAIL",
+      "detail": "observed RGBA=0.501960813999176,NaN,NaN,1"
+    },
+    {
+      "name": "Control: PQ PNG carries cICP and a 16-bit container",
+      "status": "PASS",
+      "detail": {
+        "chunks": [
+          "IHDR",
+          "cICP",
+          "IDAT",
+          "IEND"
+        ],
+        "rgba16": [
+          37924,
+          37924,
+          37924,
+          65535
+        ]
+      }
+    }
+  ]
+}

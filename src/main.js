@@ -1,11 +1,14 @@
 import './main.css';
+import { viewportToImageUV, panDeltaForClientDelta, panForZoom } from './ui/viewport-math.js';
 import { WebGLRenderer } from './renderer.js';
-import { decodeRGBE, encodeRGBE } from './decoders/rgbe.js';
-import { decodeEXR } from './decoders/exr.js';
-import { decodeJXR } from './decoders/jxr.js';
 import { generateSyntheticHDR } from './synthetic.js';
-import { encodePNG } from './decoders/png-encoder.js';
-import { decodeAVIF } from './decoders/avif.js';
+import { exportImageBlob } from './services/export-image.js';
+import { processingClient } from './services/processing-client.js';
+import { initAccessibility } from './ui/accessibility.js';
+import { applyGrade, getReferenceNits, linearToSrgb, renderSdrRgb } from './color/pipeline.js';
+import { createLatestOperationManager } from './app/latest-operation.js';
+import { commitRenderedImage } from './app/commit-rendered-image.js';
+import { formatDecodedInfo } from './ui/image-metadata.js';
 
 const OPERATOR_DETAILS = {
   0: { // Linear
@@ -56,7 +59,6 @@ let currentImage = {
   isHDR: false,
   maxLuminance: 1.0 // Store the raw Rec. 709 max luminance of the image
 };
-let cachedHdrToneMapper = null;
 
 // Histogram Options and Cache State
 const histogramState = {
@@ -67,6 +69,17 @@ const histogramState = {
   hoverY: null
 };
 let cachedHistogram = null;
+let visualFrame = 0;
+let renderPending = false;
+let histogramPending = false;
+let histogramTooltipPending = false;
+let nativeHdrColorSpaceSupported = false;
+
+// A new viewer load aborts the previous fetch/decode, and only the latest
+// request is allowed to replace the visible image or dismiss its loading UI.
+const viewerLoadManager = createLatestOperationManager();
+let loadingSequence = 0;
+const loadingOperations = new Map();
 
 const renderOptions = {
   exposure: 0.0,
@@ -97,6 +110,7 @@ const renderOptions = {
 // Interactive controls state
 let isDraggingDivider = false;
 let isPanning = false;
+let activePointerId = null;
 let startPanX = 0;
 let startPanY = 0;
 let startMouseX = 0;
@@ -106,8 +120,6 @@ let startMouseY = 0;
 let galleryFiles = [];
 let galleryIndex = -1;
 let galleryThumbnails = [];
-let galleryDecodingQueue = [];
-let isProcessingGalleryQueue = false;
 
 // DOM Elements
 const el = {
@@ -268,6 +280,7 @@ const el = {
   batchValJpegQuality: document.getElementById('batch-val-jpeg-quality'),
   batchInputSuffix: document.getElementById('batch-input-suffix'),
   btnBatchStart: document.getElementById('btn-batch-start'),
+  btnBatchCancel: document.getElementById('btn-batch-cancel'),
   btnBatchClear: document.getElementById('btn-batch-clear'),
 
   // Batch main viewport
@@ -308,13 +321,14 @@ function calculateMaxLuminance(data) {
 
 function updateMetadataDisplay() {
   if (!currentImage.data) return;
-  const peakNits = currentImage.maxLuminance * renderOptions.sdrWhite;
-  const absNits = currentImage.maxLuminance * 80.0;
+  const referenceWhite = currentImage.luminanceUnit === 'scRGB-80-nit' ? 80.0 : renderOptions.sdrWhite;
+  const peakNits = currentImage.maxLuminance * referenceWhite;
+  const sourceScale = currentImage.luminanceUnit === 'scRGB-80-nit' ? 'scRGB 1.0 = 80 nits' : 'relative linear RGB';
   
   el.metaPeakNits.innerHTML = `
-    <strong>${peakNits.toFixed(0)} nits</strong> (at SDR white = ${renderOptions.sdrWhite} nits)<br/>
+    <strong>${peakNits.toFixed(0)} nits</strong> (reference = ${referenceWhite} nits)<br/>
     <span style="font-size: 11px; opacity: 0.7; display: block; margin-top: 2px;">
-      Absolute in file: ${absNits.toFixed(0)} nits (scRGB 1.0 = 80 nits)
+      ${sourceScale}${currentImage.sourceHDR && !currentImage.decodedHDR ? ' · HDR source decoded to SDR' : ''}
     </span>
   `;
 }
@@ -331,9 +345,16 @@ function updateOperatorInfoCard(toneMapperId) {
 
 // Example scenes dynamic loading variables and functions
 let exampleScenes = [];
-const EXAMPLES_BASE_PATH = import.meta.env.DEV ? 'docs/examples/' : 'examples/';
+const EXAMPLES_BASE_PATH = import.meta.env.VITE_EXAMPLES_BASE_PATH ?? (import.meta.env.DEV ? 'docs/examples/' : 'examples/');
 
 async function loadExampleScenesList() {
+  if (!EXAMPLES_BASE_PATH) {
+    if (el.selectExampleScene) {
+      el.selectExampleScene.disabled = true;
+      el.selectExampleScene.replaceChildren(new Option('Examples are unavailable in this build', ''));
+    }
+    return;
+  }
   try {
     const res = await fetch(`${EXAMPLES_BASE_PATH}examples.json`);
     if (!res.ok) throw new Error('Failed to fetch examples list');
@@ -360,22 +381,20 @@ function populateExamplesDropdown() {
   });
 }
 
-function loadExampleScene(index) {
+async function loadExampleScene(index) {
   const scene = exampleScenes[index];
   if (!scene) return;
+  const request = beginViewerLoad(`Fetching and decoding example scene: ${scene.name}...`);
 
   if (el.exampleGameTitle) el.exampleGameTitle.textContent = scene.game;
   if (el.exampleGameDesc) {
-    let descText = "";
-    if (scene.type === 'native') {
-      descText = "Native HDR Support";
-    } else if (scene.type === 'renodx') {
-      descText = "HDR enabled via RenoDX Mod";
-    } else if (scene.type === 'rtx') {
-      descText = "HDR added via NVIDIA RTX HDR";
-    } else {
-      descText = `Source: ${scene.source}`;
-    }
+    const descText = scene.type === 'native'
+      ? 'Native HDR Support'
+      : scene.type === 'renodx'
+        ? 'HDR enabled via RenoDX Mod'
+        : scene.type === 'rtx'
+          ? 'HDR added via NVIDIA RTX HDR'
+          : `Source: ${scene.source}`;
     el.exampleGameDesc.textContent = descText;
   }
   
@@ -391,74 +410,27 @@ function loadExampleScene(index) {
 
   if (el.exampleDetails) el.exampleDetails.style.display = 'flex';
 
-  const fileUrl = `${EXAMPLES_BASE_PATH}${scene.filename}`;
-  showLoading(`Fetching and decoding example scene: ${scene.name}...`);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const res = await fetch(`${EXAMPLES_BASE_PATH}${scene.filename}`, { signal: request.signal });
+    if (!res.ok) throw new Error(`HTTP error fetching example image: ${res.status}`);
+    const decoded = await processingClient.decodeImage(await res.blob(), { signal: request.signal });
+    if (!request.isCurrent()) return;
 
-  setTimeout(async () => {
-    try {
-      const res = await fetch(fileUrl);
-      if (!res.ok) throw new Error(`HTTP error fetching example image: ${res.status}`);
-      
-      const arrayBuffer = await res.arrayBuffer();
-      const ext = scene.filename.split('.').pop().toLowerCase();
-      let decoded = null;
-      let formatName = '';
-      let depthName = '32-bit Float';
-      let isHDR = true;
-
-      const blob = new Blob([arrayBuffer], { type: ext === 'avif' ? 'image/avif' : 'image/jxr' });
-
-      if (ext === 'jxr' || ext === 'wdp') {
-        decoded = await decodeJXR(arrayBuffer);
-        formatName = 'JPEG XR (.jxr)';
-        depthName = 'Half/Full Float (HDR)';
-      } else if (ext === 'exr') {
-        decoded = decodeEXR(arrayBuffer);
-        formatName = 'OpenEXR (.exr)';
-      } else if (ext === 'hdr') {
-        decoded = decodeRGBE(arrayBuffer);
-        formatName = 'Radiance HDR (.hdr)';
-      } else if (ext === 'avif') {
-        decoded = await decodeAVIF(arrayBuffer, blob);
-        formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
-        depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
-        isHDR = decoded.isHDR;
-      } else {
-        decoded = await decodeStandardImage(blob);
-        formatName = 'SDR Image (Standard)';
-        depthName = '8-bit Integer (SDR)';
-        isHDR = false;
-      }
-
-      currentImage = {
-        name: scene.filename,
-        width: decoded.width,
-        height: decoded.height,
-        data: decoded.data,
-        isHDR: isHDR,
-        maxLuminance: calculateMaxLuminance(decoded.data)
-      };
-
-      renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
-      updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
-      updateMetadataDisplay();
-
-      toggleSdrExclusiveControls(isHDR);
-      if (isHDR) {
-        renderOptions.sdrBoost = 1.0;
-      } else {
-        showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
-      }
-
-      requestRender();
-      showToast(`Loaded example scene: ${scene.name}`);
-    } catch (err) {
+    const warnings = commitDecodedImage(scene.filename, decoded);
+    el.btnTabBatch.classList.remove('active');
+    el.btnTabViewer.classList.add('active');
+    el.viewViewer.classList.add('active');
+    el.viewBatch.classList.remove('active');
+    showToast(warnings.length ? `Loaded example scene with warning: ${warnings.join(' ')}` : `Loaded example scene: ${scene.name}`, warnings.length ? 'warning' : 'success');
+  } catch (err) {
+    if (!isAbortError(err) && request.isCurrent()) {
       showToast(`Error loading example: ${err.message}`, 'error');
       console.error(err);
-    } finally {
-      hideLoading();
     }
-  }, 50);
+  } finally {
+    finishViewerLoad(request);
+  }
 }
 
 // Default Presets & Profiles
@@ -803,9 +775,8 @@ function initTabs() {
 
 // Batch processing queue
 let batchQueue = [];
-let batchRenderer = null;
-let batchCanvas = null;
 let isProcessingBatch = false;
+let activeBatchController = null;
 
 function updateBatchUI() {
   if (batchQueue.length === 0) {
@@ -817,57 +788,58 @@ function updateBatchUI() {
   el.batchDropzone.style.display = 'none';
   el.batchListContainer.style.display = 'flex';
 
-  el.batchTableBody.innerHTML = '';
+  const fragment = document.createDocumentFragment();
   
   const pendingCount = batchQueue.filter(item => item.status === 'pending').length;
-  const processingCount = batchQueue.filter(item => item.status === 'processing').length;
   const successCount = batchQueue.filter(item => item.status === 'success').length;
   const errorCount = batchQueue.filter(item => item.status === 'error').length;
+  const cancelledCount = batchQueue.filter(item => item.status === 'cancelled').length;
   
-  el.batchProgressSubtitle.textContent = `${batchQueue.length} file(s) queued | ${successCount} done, ${errorCount} failed, ${pendingCount} pending`;
+  el.batchProgressSubtitle.textContent = `${batchQueue.length} file(s) queued | ${successCount} done, ${errorCount} failed, ${cancelledCount} cancelled, ${pendingCount} pending`;
 
   batchQueue.forEach((item, index) => {
     const tr = document.createElement('tr');
     tr.id = `batch-row-${item.id}`;
-    
-    let badgeHtml = '';
-    if (item.status === 'pending') {
-      badgeHtml = '<span class="badge badge-pending">Queued</span>';
-    } else if (item.status === 'processing') {
-      badgeHtml = '<span class="badge badge-processing">Processing...</span>';
-    } else if (item.status === 'success') {
-      badgeHtml = '<span class="badge badge-success">Completed</span>';
-    } else if (item.status === 'error') {
-      badgeHtml = `<span class="badge badge-error" title="${item.errorMsg}">Failed</span>`;
-    }
-
     const sizeStr = (item.file.size / (1024 * 1024)).toFixed(2) + ' MB';
-    const ext = item.file.name.split('.').pop().toUpperCase();
+    const ext = item.file.name.split('.').pop().replace(/[^a-z0-9]/gi, '').toUpperCase();
+    const cells = Array.from({ length: 6 }, () => document.createElement('td'));
+    const [numberCell, nameCell, extCell, sizeCell, statusCell, actionCell] = cells;
+    numberCell.style.textAlign = 'center';
+    numberCell.style.color = 'var(--text-secondary)';
+    numberCell.textContent = String(index + 1);
+    nameCell.style.cssText = 'font-weight: 500; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+    nameCell.textContent = item.file.name;
+    nameCell.title = item.file.name;
+    extCell.style.color = 'var(--text-secondary)';
+    extCell.textContent = ext;
+    sizeCell.style.color = 'var(--text-secondary)';
+    sizeCell.textContent = sizeStr;
 
-    tr.innerHTML = `
-      <td style="text-align: center; color: var(--text-secondary);">${index + 1}</td>
-      <td style="font-weight: 500; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.file.name}</td>
-      <td style="color: var(--text-secondary);">${ext}</td>
-      <td style="color: var(--text-secondary);">${sizeStr}</td>
-      <td>${badgeHtml}</td>
-      <td style="text-align: center;">
-        <button class="btn-remove-row" data-id="${item.id}" title="Remove file" ${isProcessingBatch ? 'disabled style="opacity: 0.3; cursor: not-allowed;"' : ''}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
-        </button>
-      </td>
-    `;
+    const statusLabels = { pending: 'Queued', processing: 'Processing...', success: 'Completed', error: 'Failed', cancelled: 'Cancelled' };
+    const badge = document.createElement('span');
+    badge.className = `badge badge-${item.status === 'cancelled' ? 'pending' : item.status}`;
+    badge.textContent = statusLabels[item.status] || 'Queued';
+    if (item.status === 'error' && item.errorMsg) badge.title = item.errorMsg;
+    statusCell.appendChild(badge);
 
-    el.batchTableBody.appendChild(tr);
-  });
-
-  el.batchTableBody.querySelectorAll('.btn-remove-row').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    actionCell.style.textAlign = 'center';
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'btn-remove-row';
+    removeButton.title = 'Remove file';
+    removeButton.disabled = isProcessingBatch;
+    if (isProcessingBatch) removeButton.style.cssText = 'opacity: 0.3; cursor: not-allowed;';
+    removeButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>';
+    removeButton.addEventListener('click', () => {
       if (isProcessingBatch) return;
-      const id = btn.getAttribute('data-id');
-      batchQueue = batchQueue.filter(item => item.id !== id);
+      batchQueue = batchQueue.filter(queued => queued.id !== item.id);
       updateBatchUI();
     });
+    actionCell.appendChild(removeButton);
+    cells.forEach(cell => tr.appendChild(cell));
+    fragment.appendChild(tr);
   });
+  el.batchTableBody.replaceChildren(fragment);
 }
 
 function addFilesToBatch(files) {
@@ -900,217 +872,120 @@ function addFilesToBatch(files) {
 async function processBatch() {
   if (batchQueue.length === 0 || isProcessingBatch) return;
 
+  const selectedPreset = el.batchSelectPreset.value;
+  let batchOptions = { ...renderOptions };
+  if (selectedPreset !== 'current') {
+    const preset = DEFAULT_PRESETS[selectedPreset] || getCustomPresets()[selectedPreset];
+    if (preset) batchOptions = { ...preset.options };
+  }
+  const snapshot = {
+    items: [...batchQueue],
+    options: batchOptions,
+    format: el.batchSelectExportFormat.value,
+    quality: Number.parseInt(el.batchSliderJpegQuality.value, 10) / 100,
+    suffix: el.batchInputSuffix.value || '',
+    alphaMode: document.getElementById('batch-select-export-alpha-mode')?.value || 'preserve',
+    pixelMode: document.getElementById('batch-select-export-pixel-mode')?.value || 'processed'
+  };
+  const controller = new AbortController();
+  activeBatchController = controller;
+
   isProcessingBatch = true;
-  toggleBatchSidebarLock(true);
-  
-  el.batchStatusTitle.textContent = 'Processing files...';
-  showToast('Processing started. Please allow multiple file downloads if prompted by your browser.', 'info');
+  let wasCancelled = false;
+  let operationError = null;
+  try {
+    toggleBatchSidebarLock(true);
+    el.batchStatusTitle.textContent = 'Processing files...';
+    showToast('Processing started. Please allow multiple file downloads if prompted by your browser.', 'info');
 
-  for (let i = 0; i < batchQueue.length; i++) {
-    const item = batchQueue[i];
-    item.status = 'processing';
-    updateBatchUI();
-
-    const percentage = Math.round((i / batchQueue.length) * 100);
-    el.batchPercentage.textContent = `${percentage}%`;
-    el.batchProgressBar.style.width = `${percentage}%`;
-    
-    await new Promise(r => setTimeout(r, 50));
-
-    try {
-      const ext = item.file.name.split('.').pop().toLowerCase();
-      const arrayBuffer = await item.file.arrayBuffer();
-      
-      let decoded = null;
-      let isHDR = true;
-
-      if (ext === 'jxr' || ext === 'wdp') {
-        decoded = await decodeJXR(arrayBuffer);
-      } else if (ext === 'exr') {
-        decoded = decodeEXR(arrayBuffer);
-      } else if (ext === 'hdr') {
-        decoded = decodeRGBE(arrayBuffer);
-      } else if (ext === 'avif') {
-        decoded = await decodeAVIF(arrayBuffer, item.file);
-        isHDR = decoded.isHDR;
-      } else {
-        decoded = await decodeStandardImage(item.file);
-        isHDR = false;
+    for (let i = 0; i < snapshot.items.length; i++) {
+      const item = snapshot.items[i];
+      if (controller.signal.aborted) {
+        item.status = 'cancelled';
+        snapshot.items.slice(i + 1).forEach(pending => { pending.status = 'cancelled'; });
+        wasCancelled = true;
+        break;
       }
+      item.status = 'processing';
+      updateBatchUI();
 
-      if (!decoded || !decoded.data) {
-        throw new Error('Failed to decode image data.');
-      }
+      const percentage = Math.round((i / snapshot.items.length) * 100);
+      el.batchPercentage.textContent = `${percentage}%`;
+      el.batchProgressBar.style.width = `${percentage}%`;
 
-      if (!batchRenderer) {
-        batchCanvas = document.createElement('canvas');
-        batchRenderer = new WebGLRenderer(batchCanvas);
-      }
-      
-      batchCanvas.width = decoded.width;
-      batchCanvas.height = decoded.height;
-      batchRenderer.setImage(decoded.width, decoded.height, decoded.data);
+      await new Promise(resolve => setTimeout(resolve, 50));
 
-      // Resolve options to apply
-      let activeOptions = { ...renderOptions };
-      const selectedPreset = el.batchSelectPreset.value;
-      if (selectedPreset !== 'current') {
-        let preset = DEFAULT_PRESETS[selectedPreset];
-        if (!preset) {
-          preset = getCustomPresets()[selectedPreset];
-        }
-        if (preset) {
-          activeOptions = { ...preset.options };
-        }
-      }
-
-      let exposure = activeOptions.exposure;
-      if (activeOptions.autoExposureCorrect) {
-        exposure += Math.log2(80.0 / activeOptions.sdrWhite);
-      }
-
-      const opt = {
-        ...activeOptions,
-        previewMode: 'hdr',
-        splitX: 0.0,
-        splitY: 0.0,
-        heatmap: false,
-        clippingWarning: false,
-        nativeHdr: false,
-        exposure: exposure,
-        toneMapWhite: activeOptions.targetPeak / activeOptions.sdrWhite,
-        smartUpmix: isHDR ? false : activeOptions.smartUpmix,
-        sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost
-      };
-
-      batchRenderer.zoom = 1.0;
-      batchRenderer.panX = 0.0;
-      batchRenderer.panY = 0.0;
-      batchRenderer.render(opt, true);
-
-      const format = el.batchSelectExportFormat.value;
-      const baseName = item.file.name.replace(/\.[^/.]+$/, "");
-      const suffix = el.batchInputSuffix.value || '';
-      const outFilename = `${baseName}${suffix}`;
-
-      if (format === 'hdr') {
-        const fileBytes = encodeRGBE(decoded.width, decoded.height, decoded.data);
-        downloadBlob(new Blob([fileBytes], { type: 'image/vnd.radiance' }), `${outFilename}.hdr`);
-      } else if (format.startsWith('png') && format !== 'png') {
-        const isSdr = format.endsWith('sdr');
-        const bitDepth = format.includes('10') ? 10 : format.includes('12') ? 12 : 16;
-        let transfer = 'linear';
-        if (format.endsWith('pq')) {
-          transfer = 'pq';
-        } else if (format.endsWith('hlg')) {
-          transfer = 'hlg';
-        }
-        
-        let toneMapperFunc = null;
-        if (isSdr) {
-          const activeOperator = opt.toneMapper === 0 ? 'linear' :
-                                 opt.toneMapper === 1 ? 'reinhard' :
-                                 opt.toneMapper === 2 ? 'aces' :
-                                 opt.toneMapper === 3 ? 'hable' :
-                                 opt.toneMapper === 4 ? 'lottes' :
-                                 opt.toneMapper === 5 ? 'uchimura' : 'linear';
-          
-          toneMapperFunc = createToneMapperFunc(
-            activeOptions.exposure,
-            activeOperator,
-            activeOptions.gamma,
-            activeOptions.contrast,
-            activeOptions.sdrWhite,
-            activeOptions.targetPeak,
-            activeOptions.autoExposureCorrect,
-            {
-              sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost,
-              smartUpmix: isHDR ? false : activeOptions.smartUpmix,
-              saturation: activeOptions.saturation,
-              highlights: activeOptions.highlights,
-              shadows: activeOptions.shadows,
-              temp: activeOptions.temp,
-              tint: activeOptions.tint
-            }
-          );
-        }
-
-        let resolvedExposure = activeOptions.exposure;
-        if (activeOptions.autoExposureCorrect) {
-          resolvedExposure += Math.log2(80.0 / activeOptions.sdrWhite);
-        }
-
-        const pngBytes = await encodePNG(decoded.width, decoded.height, decoded.data, {
-          bitDepth: bitDepth,
-          type: isSdr ? 'sdr' : 'hdr',
-          transfer: transfer,
-          exposure: resolvedExposure,
-          contrast: activeOptions.contrast,
-          sdrBoost: isHDR ? 1.0 : activeOptions.sdrBoost,
-          sdrWhite: activeOptions.sdrWhite,
-          maxLuminance: calculateMaxLuminance(decoded.data),
-          toneMapperFunc: toneMapperFunc,
-          smartUpmix: isHDR ? false : activeOptions.smartUpmix,
-          saturation: activeOptions.saturation,
-          highlights: activeOptions.highlights,
-          shadows: activeOptions.shadows,
-          temp: activeOptions.temp,
-          tint: activeOptions.tint
+      try {
+        const decoded = await processingClient.decodeImage(item.file, { signal: controller.signal });
+        if (!decoded?.data) throw new Error('Failed to decode image data.');
+        const image = { ...decoded, name: item.file.name };
+        const baseName = item.file.name.replace(/\.[^/.]+$/, '');
+        const outFilename = `${baseName}${snapshot.suffix}`;
+        const blob = await exportImageBlob(image, snapshot.options, {
+          format: snapshot.format,
+          quality: snapshot.quality,
+          alphaMode: snapshot.alphaMode,
+          pixelMode: snapshot.pixelMode,
+          signal: controller.signal
         });
+        if (!blob) throw new Error('The encoder returned an empty file.');
+        if (controller.signal.aborted) throw new DOMException('The batch conversion was cancelled.', 'AbortError');
+        const extension = snapshot.format === 'jpeg' ? 'jpg' : snapshot.format === 'hdr' ? 'hdr' : snapshot.format === 'webp' ? 'webp' : 'png';
+        downloadBlob(blob, `${outFilename}.${extension}`);
 
-        downloadBlob(new Blob([pngBytes], { type: 'image/png' }), `${outFilename}.png`);
-      } else {
-        const pixels = batchRenderer.readPixels();
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = decoded.width;
-        exportCanvas.height = decoded.height;
-        const exportCtx = exportCanvas.getContext('2d');
-        const imgData = exportCtx.createImageData(decoded.width, decoded.height);
-        imgData.data.set(pixels);
-        exportCtx.putImageData(imgData, 0, 0);
-
-        await new Promise((resolveB, rejectB) => {
-          if (format === 'png') {
-            exportCanvas.toBlob((blob) => {
-              downloadBlob(blob, `${outFilename}.png`);
-              resolveB();
-            }, 'image/png');
-          } else if (format === 'webp') {
-            exportCanvas.toBlob((blob) => {
-              downloadBlob(blob, `${outFilename}.webp`);
-              resolveB();
-            }, 'image/webp');
-          } else {
-            const quality = parseInt(el.batchSliderJpegQuality.value, 10) / 100.0;
-            exportCanvas.toBlob((blob) => {
-              downloadBlob(blob, `${outFilename}.jpg`);
-              resolveB();
-            }, 'image/jpeg', quality);
-          }
-        });
+        item.status = 'success';
+      } catch (err) {
+        if (isAbortError(err) || controller.signal.aborted) {
+          item.status = 'cancelled';
+          snapshot.items.slice(i + 1).forEach(pending => { pending.status = 'cancelled'; });
+          wasCancelled = true;
+          updateBatchUI();
+          break;
+        }
+        console.error(`Error processing batch file ${item.file.name}:`, err);
+        item.status = 'error';
+        item.errorMsg = err.message || 'Unknown processing error';
       }
 
-      item.status = 'success';
-    } catch (err) {
-      console.error(`Error processing batch file ${item.file.name}:`, err);
-      item.status = 'error';
-      item.errorMsg = err.message || 'Unknown processing error';
+      updateBatchUI();
+      await new Promise(resolve => setTimeout(resolve, 150));
     }
-
-    updateBatchUI();
-    await new Promise(r => setTimeout(r, 150));
+  } catch (err) {
+    operationError = err;
+    wasCancelled = isAbortError(err) || controller.signal.aborted;
+    console.error('Batch processing failed:', err);
+    const status = wasCancelled ? 'cancelled' : 'error';
+    const message = err?.message || 'Batch processing failed.';
+    snapshot.items.forEach(item => {
+      if (item.status === 'pending' || item.status === 'processing') {
+        item.status = status;
+        if (status === 'error') item.errorMsg = message;
+      }
+    });
+  } finally {
+    isProcessingBatch = false;
+    activeBatchController = null;
+    try {
+      toggleBatchSidebarLock(false);
+    } catch (err) {
+      console.error('Could not unlock batch controls:', err);
+    }
   }
 
-  isProcessingBatch = false;
-  toggleBatchSidebarLock(false);
+  const completedCount = snapshot.items.filter(item => item.status === 'success' || item.status === 'error' || item.status === 'cancelled').length;
+  const percentage = snapshot.items.length ? Math.round((completedCount / snapshot.items.length) * 100) : 100;
+  el.batchPercentage.textContent = `${percentage}%`;
+  el.batchProgressBar.style.width = `${percentage}%`;
+  el.batchStatusTitle.textContent = wasCancelled ? 'Processing Cancelled' : 'Processing Completed';
 
-  el.batchPercentage.textContent = '100%';
-  el.batchProgressBar.style.width = '100%';
-  el.batchStatusTitle.textContent = 'Processing Completed';
-
-  const successes = batchQueue.filter(item => item.status === 'success').length;
-  const errors = batchQueue.filter(item => item.status === 'error').length;
-  showToast(`Batch conversion complete! ${successes} succeeded, ${errors} failed.`);
+  const successes = snapshot.items.filter(item => item.status === 'success').length;
+  const errors = snapshot.items.filter(item => item.status === 'error').length;
+  const cancelled = snapshot.items.filter(item => item.status === 'cancelled').length;
+  showToast(operationError && !wasCancelled
+    ? `Batch processing stopped: ${operationError.message || 'Unknown error.'}`
+    : wasCancelled
+    ? `Batch conversion cancelled. ${successes} succeeded, ${errors} failed, ${cancelled} cancelled.`
+    : `Batch conversion complete! ${successes} succeeded, ${errors} failed.`);
 }
 
 function toggleBatchSidebarLock(lock) {
@@ -1118,8 +993,16 @@ function toggleBatchSidebarLock(lock) {
   el.batchSelectExportFormat.disabled = lock;
   el.batchSliderJpegQuality.disabled = lock;
   el.batchInputSuffix.disabled = lock;
+  const alphaMode = document.getElementById('batch-select-export-alpha-mode');
+  const pixelMode = document.getElementById('batch-select-export-pixel-mode');
+  if (alphaMode) alphaMode.disabled = lock;
+  if (pixelMode) pixelMode.disabled = lock;
   el.btnBatchStart.disabled = lock;
   el.btnBatchClear.disabled = lock;
+  if (el.btnBatchCancel) {
+    el.btnBatchCancel.hidden = !lock;
+    el.btnBatchCancel.disabled = !lock;
+  }
   
   if (lock) {
     el.btnBatchStart.textContent = 'Processing...';
@@ -1139,7 +1022,7 @@ function setupPresetEventListeners() {
     
     applyPresetToUI(presetId);
     
-    const isCustom = getCustomPresets().hasOwnProperty(presetId);
+    const isCustom = Object.hasOwn(getCustomPresets(), presetId);
     el.customPresetActions.style.display = isCustom ? 'flex' : 'none';
     removeCustomModifiedOption();
   });
@@ -1189,7 +1072,7 @@ function setupPresetEventListeners() {
   el.btnDeletePreset.addEventListener('click', () => {
     const presetId = el.selectPreset.value;
     const custom = getCustomPresets();
-    if (custom.hasOwnProperty(presetId)) {
+    if (Object.hasOwn(custom, presetId)) {
       const name = custom[presetId].name;
       delete custom[presetId];
       saveCustomPresets(custom);
@@ -1272,7 +1155,7 @@ function setupBatchEventListeners() {
       }
 
       if (entries.length > 0) {
-        showLoading('Reading folder contents...');
+        const scanLoading = showLoading('Reading folder contents...');
         try {
           const files = await getAllFilesFromEntries(entries);
           addFilesToBatch(files);
@@ -1280,7 +1163,7 @@ function setupBatchEventListeners() {
           console.error(err);
           showToast('Failed to read folder contents.', 'error');
         } finally {
-          hideLoading();
+          hideLoading(scanLoading);
         }
         return;
       }
@@ -1314,13 +1197,22 @@ function setupBatchEventListeners() {
     showToast('Batch list cleared.');
   });
 
+  if (el.btnBatchCancel) {
+    el.btnBatchCancel.addEventListener('click', () => {
+      if (activeBatchController && isProcessingBatch) {
+        el.batchStatusTitle.textContent = 'Cancelling...';
+        activeBatchController.abort();
+      }
+    });
+  }
+
   el.btnBatchStart.addEventListener('click', () => {
     if (isProcessingBatch) return;
     if (batchQueue.length === 0) {
       showToast('Queue is empty. Load files first.', 'warning');
       return;
     }
-    processBatch();
+    observeAsyncOperation(processBatch(), 'Batch processing failed');
   });
 }
 
@@ -1336,6 +1228,7 @@ function init() {
   }
 
   setupEventListeners();
+  initAccessibility();
   updateToneMapWhite();
   updateOperatorInfoCard(renderOptions.toneMapper);
   
@@ -1349,18 +1242,23 @@ function init() {
   loadSyntheticImage();
   initHdrCapabilityDetection();
   loadExampleScenesList();
-  hideLoading();
 }
 
 function initHdrCapabilityDetection() {
-  // 1. Detect WebGL color space support (API)
-  const isApiSupported = renderer && renderer.gl && ('drawingBufferColorSpace' in renderer.gl);
-  if (isApiSupported) {
+  // Presence of the property alone is not enough; test the exact value the
+  // shader output needs and restore the previous state immediately.
+  nativeHdrColorSpaceSupported = probeNativeHdrColorSpace(renderer?.gl);
+  if (nativeHdrColorSpaceSupported) {
+    el.checkboxNativeHdr.disabled = false;
     el.hdrApiStatus.textContent = 'Supported';
     el.hdrApiStatus.className = 'status-badge status-supported';
   } else {
+    el.checkboxNativeHdr.checked = false;
+    el.checkboxNativeHdr.disabled = true;
     el.hdrApiStatus.textContent = 'Unsupported';
     el.hdrApiStatus.className = 'status-badge status-unsupported';
+    el.nativeHdrHelp.textContent = 'This browser cannot configure a Rec.2100 PQ drawing buffer. Native HDR preview is unavailable; standard SDR preview and HDR file export remain available.';
+    el.nativeHdrHelp.style.display = 'block';
   }
 
   // 2. Detect Display HDR Capability (OS & Hardware)
@@ -1380,7 +1278,7 @@ function initHdrCapabilityDetection() {
   // Dynamic changes listener
   try {
     hdrMedia.addEventListener('change', (e) => updateDisplayStatus(e.matches));
-  } catch (err) {
+  } catch {
     // Fallback for older browsers
     hdrMedia.addListener((e) => updateDisplayStatus(e.matches));
   }
@@ -1425,6 +1323,43 @@ function initHdrCapabilityDetection() {
   updateActiveModeLabel(renderOptions.nativeHdr);
 }
 
+function probeNativeHdrColorSpace(gl) {
+  if (!gl || !('drawingBufferColorSpace' in gl)) return false;
+  const previous = gl.drawingBufferColorSpace || 'srgb';
+  try {
+    gl.drawingBufferColorSpace = 'rec2100-pq';
+    return gl.drawingBufferColorSpace === 'rec2100-pq';
+  } catch {
+    return false;
+  } finally {
+    try {
+      gl.drawingBufferColorSpace = previous;
+    } catch {
+      // A failed probe must not prevent the application from initializing.
+    }
+  }
+}
+
+function setNativeHdrColorSpace(enabled) {
+  const gl = renderer?.gl;
+  if (!gl || !nativeHdrColorSpaceSupported) return !enabled;
+  const previous = gl.drawingBufferColorSpace;
+  const desired = enabled ? 'rec2100-pq' : 'srgb';
+  try {
+    gl.drawingBufferColorSpace = desired;
+    if (gl.drawingBufferColorSpace !== desired) throw new Error('The browser did not apply the requested drawing buffer color space.');
+    return true;
+  } catch (error) {
+    try {
+      gl.drawingBufferColorSpace = previous;
+    } catch {
+      // Keep the prior application state even if the browser refuses rollback.
+    }
+    console.warn('Native HDR color space could not be changed:', error);
+    return false;
+  }
+}
+
 function updateActiveModeLabel(isNativeHdr) {
   if (isNativeHdr) {
     el.hdrActiveModeStatus.textContent = 'Native HDR';
@@ -1439,7 +1374,9 @@ function updateActiveModeLabel(isNativeHdr) {
 function setupEventListeners() {
 
   // Synthetic Button
-  el.btnSynthetic.addEventListener('click', loadSyntheticImage);
+  el.btnSynthetic.addEventListener('click', () => {
+    observeAsyncOperation(loadSyntheticImage(), 'Scene generation error');
+  });
 
   // File Upload (Single Viewer / Multiple Gallery / Folder)
   el.dropzone.addEventListener('click', () => el.fileInput.click());
@@ -1448,7 +1385,7 @@ function setupEventListeners() {
     if (files.length === 1) {
       handleSingleFile(files[0]);
     } else if (files.length > 1) {
-      handleMultipleFiles(files);
+      observeAsyncOperation(handleMultipleFiles(files), 'Gallery loading failed');
     }
   });
 
@@ -1457,7 +1394,7 @@ function setupEventListeners() {
   el.folderInput.addEventListener('change', (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
-      handleMultipleFiles(files);
+      observeAsyncOperation(handleMultipleFiles(files), 'Gallery loading failed');
     }
   });
 
@@ -1518,21 +1455,24 @@ function setupEventListeners() {
       }
 
       if (entries.length > 0) {
-        showLoading('Reading folder contents...');
+        const request = beginViewerLoad('Reading folder contents...');
         try {
-          const files = await getAllFilesFromEntries(entries);
+          const files = await getAllFilesFromEntries(entries, { signal: request.signal });
+          if (!request.isCurrent()) return;
           if (files.length === 1) {
-            handleSingleFile(files[0]);
+            await handleSingleFile(files[0], request);
           } else if (files.length > 1) {
-            await handleMultipleFiles(files);
+            await handleMultipleFiles(files, request);
           } else {
             showToast('No files found.', 'warning');
-            hideLoading();
           }
         } catch (err) {
-          console.error(err);
-          showToast('Failed to read folder contents.', 'error');
-          hideLoading();
+          if (request.isCurrent()) {
+            console.error(err);
+            showToast('Failed to read folder contents.', 'error');
+          }
+        } finally {
+          finishViewerLoad(request);
         }
         return;
       }
@@ -1542,7 +1482,7 @@ function setupEventListeners() {
       if (e.dataTransfer.files.length === 1) {
         handleSingleFile(e.dataTransfer.files[0]);
       } else {
-        handleMultipleFiles(Array.from(e.dataTransfer.files));
+        observeAsyncOperation(handleMultipleFiles(Array.from(e.dataTransfer.files)), 'Gallery loading failed');
       }
     }
   });
@@ -1744,28 +1684,30 @@ function setupEventListeners() {
   });
 
   el.checkboxNativeHdr.addEventListener('change', (e) => {
-    renderOptions.nativeHdr = e.target.checked;
-    
-    if ('drawingBufferColorSpace' in renderer.gl) {
-      renderer.gl.drawingBufferColorSpace = renderOptions.nativeHdr ? 'rec2100-pq' : 'srgb';
-      if (renderOptions.nativeHdr) {
+    const requested = e.target.checked;
+    if (!setNativeHdrColorSpace(requested)) {
+      e.target.checked = renderOptions.nativeHdr;
+      if (requested && !renderOptions.nativeHdr) {
+        nativeHdrColorSpaceSupported = false;
+        e.target.disabled = true;
+        el.hdrApiStatus.textContent = 'Unavailable';
+        el.hdrApiStatus.className = 'status-badge status-unsupported';
+        el.nativeHdrHelp.textContent = 'This browser rejected the Rec.2100 PQ drawing buffer. Native HDR preview is unavailable; standard SDR preview and HDR file export remain available.';
         el.nativeHdrHelp.style.display = 'block';
-        showToast('Enabled native HDR monitor mode (BT.2100 PQ)', 'success');
-        
-        // Auto-expand status card when checked to show the native status info
-        el.hdrStatusContent.style.display = 'flex';
-        el.hdrStatusChevron.style.transform = 'rotate(180deg)';
+        showToast('Native HDR is unavailable because the browser rejected the Rec.2100 PQ drawing buffer.', 'warning');
       } else {
-        el.nativeHdrHelp.style.display = 'none';
-        showToast('Restored standard SDR mode', 'info');
+        showToast('The browser could not change the drawing buffer mode; the previous preview mode is still active.', 'warning');
       }
+      return;
+    }
+    renderOptions.nativeHdr = requested;
+    el.nativeHdrHelp.style.display = requested ? 'block' : 'none';
+    if (requested) {
+      showToast('Enabled native HDR monitor mode (BT.2100 PQ)', 'success');
+      el.hdrStatusContent.style.display = 'flex';
+      el.hdrStatusChevron.style.transform = 'rotate(180deg)';
     } else {
-      if (renderOptions.nativeHdr) {
-        showToast('Your browser does not support drawingBufferColorSpace (BT.2100 PQ).', 'warning');
-        e.target.checked = false;
-        renderOptions.nativeHdr = false;
-      }
-      el.nativeHdrHelp.style.display = 'none';
+      showToast('Restored standard SDR mode', 'info');
     }
     updateActiveModeLabel(renderOptions.nativeHdr);
     requestRender();
@@ -1792,10 +1734,70 @@ function setupEventListeners() {
   });
 
   // Canvas Viewport Events (Pan, Zoom, Split-screen Slider Drag)
-  el.canvas.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('mouseup', onMouseUp);
+  el.canvas.style.touchAction = 'none';
+  el.canvas.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    activePointerId = e.pointerId;
+    try {
+      el.canvas.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Continue with window pointer events when capture is unavailable.
+    }
+    onMouseDown(e);
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (activePointerId !== null && e.pointerId !== activePointerId) return;
+    onMouseMove(e);
+  });
+  const endPointer = (e) => {
+    if (activePointerId !== null && e.pointerId !== activePointerId) return;
+    activePointerId = null;
+    onMouseUp();
+  };
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
   el.canvas.addEventListener('wheel', onWheel, { passive: false });
+
+  el.canvasContainer.addEventListener('lumina:accessibility', (e) => {
+    const action = e.detail?.action;
+    if (!currentImage.data) return;
+    if (action === 'zoom') {
+      const direction = Number(e.detail.direction) >= 0 ? 1 : -1;
+      renderer.setZoom(renderer.zoom * (direction > 0 ? 1.2 : 1 / 1.2));
+    } else if (action === 'pan') {
+      renderer.panX += Number(e.detail.dx || 0) * 0.08 / renderer.zoom;
+      renderer.panY += Number(e.detail.dy || 0) * 0.08 / renderer.zoom;
+    } else if (action === 'split') {
+      if (e.detail.axis === 'y') {
+        renderOptions.previewMode = 'split-h';
+        renderOptions.activeSplitY = Math.max(0, Math.min(1, Number(e.detail.value)));
+      } else {
+        renderOptions.previewMode = 'split';
+        renderOptions.activeSplitX = Math.max(0, Math.min(1, Number(e.detail.value)));
+      }
+      el.selectPreviewMode.value = renderOptions.previewMode;
+      el.canvas.style.cursor = renderOptions.previewMode === 'split' ? 'ew-resize' : 'ns-resize';
+    } else if (action === 'reset') {
+      renderer.resetView();
+    } else {
+      return;
+    }
+    requestRender();
+  });
+
+  el.canvas.addEventListener('lumina:native-hdr-unavailable', () => {
+    nativeHdrColorSpaceSupported = false;
+    renderOptions.nativeHdr = false;
+    el.checkboxNativeHdr.checked = false;
+    el.checkboxNativeHdr.disabled = true;
+    el.hdrApiStatus.textContent = 'Unavailable';
+    el.hdrApiStatus.className = 'status-badge status-unsupported';
+    el.nativeHdrHelp.textContent = 'The browser could not restore a Rec.2100 PQ drawing buffer after graphics-device recovery. Native HDR preview has been disabled; standard SDR preview and HDR file export remain available.';
+    el.nativeHdrHelp.style.display = 'block';
+    updateActiveModeLabel(false);
+    requestRender();
+  });
 
   // Prevent canvas context menu
   el.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1836,7 +1838,7 @@ function setupEventListeners() {
       el.histogramOverlay.querySelectorAll('[data-channel]').forEach(p => p.classList.remove('active'));
       pill.classList.add('active');
       histogramState.channel = pill.getAttribute('data-channel');
-      drawHistogram();
+      requestHistogramDraw();
     });
   });
 
@@ -1845,34 +1847,33 @@ function setupEventListeners() {
       el.histogramOverlay.querySelectorAll('[data-scale]').forEach(p => p.classList.remove('active'));
       pill.classList.add('active');
       histogramState.scale = pill.getAttribute('data-scale');
-      drawHistogram();
+      requestHistogramDraw();
     });
   });
 
   // Stop canvas panning and zooming interactions when clicking/scrolling the histogram overlay
-  const stopPropEvents = ['mousedown', 'mousemove', 'mouseup', 'wheel', 'click', 'dblclick'];
+  const stopPropEvents = ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'click', 'dblclick'];
   stopPropEvents.forEach(evtName => {
     el.histogramOverlay.addEventListener(evtName, (e) => {
       e.stopPropagation();
     });
   });
 
-  el.histogramCanvas.addEventListener('mousemove', (e) => {
+  el.histogramCanvas.addEventListener('pointermove', (e) => {
     const rect = el.histogramCanvas.getBoundingClientRect();
     histogramState.hoverX = e.clientX - rect.left;
     histogramState.hoverY = e.clientY - rect.top;
-    drawHistogram();
-    updateHistogramTooltip();
+    requestHistogramDraw(true);
   });
 
-  el.histogramCanvas.addEventListener('mouseleave', () => {
+  el.histogramCanvas.addEventListener('pointerleave', () => {
     histogramState.hoverX = null;
     histogramState.hoverY = null;
     el.histogramTooltip.style.display = 'none';
-    drawHistogram();
+    requestHistogramDraw();
   });
 
-  el.histogramCanvas.addEventListener('mouseenter', () => {
+  el.histogramCanvas.addEventListener('pointerenter', () => {
     if (currentImage.data) {
       el.histogramTooltip.style.display = 'flex';
     }
@@ -1883,7 +1884,7 @@ function setupEventListeners() {
   if (el.selectExampleScene) {
     el.selectExampleScene.addEventListener('change', (e) => {
       const idx = parseInt(e.target.value, 10);
-      loadExampleScene(idx);
+      observeAsyncOperation(loadExampleScene(idx), 'Error loading example');
     });
   }
 }
@@ -1891,12 +1892,58 @@ function setupEventListeners() {
 
 // Show/Hide Loading
 function showLoading(text) {
-  el.loadingText.textContent = text || 'Processing...';
+  const token = ++loadingSequence;
+  loadingOperations.set(token, text || 'Processing...');
+  el.loadingText.textContent = loadingOperations.get(token);
   el.loadingOverlay.classList.add('active');
+  return token;
 }
 
-function hideLoading() {
-  el.loadingOverlay.classList.remove('active');
+function hideLoading(token = null) {
+  if (token === null) {
+    const latest = loadingOperations.keys().next().value;
+    if (latest !== undefined) loadingOperations.delete(latest);
+  } else {
+    loadingOperations.delete(token);
+  }
+  const latest = [...loadingOperations.values()].at(-1);
+  if (latest) {
+    el.loadingText.textContent = latest;
+    el.loadingOverlay.classList.add('active');
+  } else {
+    el.loadingOverlay.classList.remove('active');
+  }
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+function observeAsyncOperation(operation, label) {
+  Promise.resolve(operation).catch((error) => {
+    if (isAbortError(error)) return;
+    console.error(`${label}:`, error);
+    showToast(`${label}: ${error?.message || 'Unknown error.'}`, 'error');
+  });
+}
+
+function beginViewerLoad(label) {
+  const previous = viewerLoadManager.current;
+  if (previous) hideLoading(previous.loadingToken);
+  const request = viewerLoadManager.begin();
+  request.loadingToken = showLoading(label);
+  return request;
+}
+
+function finishViewerLoad(request) {
+  if (!viewerLoadManager.finish(request)) return;
+  hideLoading(request.loadingToken);
+}
+
+function updateViewerLoadLabel(request, label) {
+  if (!request || !request.isCurrent()) return;
+  loadingOperations.set(request.loadingToken, label);
+  el.loadingText.textContent = label;
 }
 
 // Show Toast Notification
@@ -2000,15 +2047,53 @@ function updateViewportLabels() {
   }
 }
 
-// Render Request
+// Coalesce slider, pointer, resize and histogram updates into one paint frame.
+function scheduleVisualFrame() {
+  if (!visualFrame) visualFrame = requestAnimationFrame(flushVisualFrame);
+}
+
+function requestHistogramDraw(updateTooltip = false) {
+  histogramPending = true;
+  histogramTooltipPending ||= updateTooltip;
+  scheduleVisualFrame();
+}
+
 function requestRender() {
-  cachedHdrToneMapper = null;
+  renderPending = true;
+  histogramPending = true;
+  scheduleVisualFrame();
+}
+
+function flushVisualFrame() {
+  visualFrame = 0;
+  const shouldRender = renderPending;
+  const shouldDrawHistogram = histogramPending;
+  const shouldUpdateTooltip = histogramTooltipPending;
+  renderPending = false;
+  histogramPending = false;
+  histogramTooltipPending = false;
+
+  if (shouldRender) renderViewport();
+  if (shouldDrawHistogram) drawHistogram();
+  if (shouldUpdateTooltip) updateHistogramTooltip();
+
+  if (el.canvasContainer) {
+    el.canvasContainer.dispatchEvent(new CustomEvent('lumina:viewport-state', {
+      bubbles: false,
+      detail: {
+        zoom: renderer?.zoom ?? 1,
+        splitX: renderOptions.activeSplitX,
+        splitY: renderOptions.activeSplitY,
+        previewMode: renderOptions.previewMode
+      }
+    }));
+  }
+
+  if (renderPending || histogramPending || histogramTooltipPending) scheduleVisualFrame();
+}
+
+function renderViewport() {
   if (renderer && currentImage.data) {
-    let exposure = renderOptions.exposure;
-    if (renderOptions.autoExposureCorrect) {
-      exposure += Math.log2(80.0 / renderOptions.sdrWhite);
-    }
-    
     let resolvedSplitX = renderOptions.activeSplitX;
     let resolvedSplitY = renderOptions.activeSplitY;
     if (renderOptions.previewMode === 'hdr') {
@@ -2024,11 +2109,13 @@ function requestRender() {
       splitX: resolvedSplitX,
       splitY: resolvedSplitY,
       blendOpacity: renderOptions.blendOpacity / 100.0,
-      exposure: exposure,
-      toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite,
+      exposure: renderOptions.exposure,
       // Override SDR-exclusive options for HDR inputs
       smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
-      sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost
+      sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
+      sourceHDR: currentImage.sourceHDR,
+      decodedHDR: currentImage.decodedHDR,
+      luminanceUnit: currentImage.luminanceUnit
     };
     renderer.render(options);
     
@@ -2045,7 +2132,6 @@ function requestRender() {
     }
     
     updateViewportLabels();
-    drawHistogram();
   }
 }
 
@@ -2065,7 +2151,8 @@ function toggleSdrExclusiveControls(isHDR) {
 }
 
 // Load Synthetic Image (Procedural Test)
-function loadSyntheticImage() {
+async function loadSyntheticImage() {
+  const request = beginViewerLoad('Generating HDR scene...');
   if (el.selectExampleScene) {
     el.selectExampleScene.selectedIndex = 0;
   }
@@ -2073,15 +2160,13 @@ function loadSyntheticImage() {
     el.exampleDetails.style.display = 'none';
   }
 
-  showLoading('Generating HDR scene...');
-  
-  // Run on setTimeout to let UI update
-  setTimeout(() => {
-    try {
-      const width = 1024;
-      const height = 768;
-      const patternType = el.selectSyntheticPattern ? el.selectSyntheticPattern.value : 'cosmic';
-      const parsed = generateSyntheticHDR(width, height, patternType);
+  const patternType = el.selectSyntheticPattern ? el.selectSyntheticPattern.value : 'cosmic';
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (!request.isCurrent()) return;
+    const width = 1024;
+    const height = 768;
+    const parsed = generateSyntheticHDR(width, height, patternType);
 
       let filename = 'Procedural_Test_HDR.hdr';
       let formatName = 'Synthetic HDR (Cosmic)';
@@ -2099,98 +2184,43 @@ function loadSyntheticImage() {
         formatName = 'Synthetic HDR (Radial)';
       }
 
-      currentImage = {
-        name: filename,
-        width: parsed.width,
-        height: parsed.height,
-        data: parsed.data,
-        isHDR: true,
-        maxLuminance: calculateMaxLuminance(parsed.data)
-      };
-
-      renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
-      updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, '32-bit Float', 4);
-      updateMetadataDisplay();
-      
-      // Reset and hide SDR-exclusive controls since synthetic images are HDR
-      toggleSdrExclusiveControls(true);
-      renderOptions.sdrBoost = 1.0;
-
-      requestRender();
-      showToast('Generated HDR test image');
-    } catch (err) {
-      showToast('Scene generation error: ' + err.message, 'error');
-    } finally {
-      hideLoading();
-    }
-  }, 50);
+    if (!request.isCurrent()) return;
+    commitDecodedImage(filename, {
+      ...parsed,
+      isHDR: true,
+      sourceHDR: true,
+      decodedHDR: true,
+      luminanceUnit: 'relative'
+    }, { format: formatName, depth: '32-bit Float (HDR)' });
+    showToast('Generated HDR test image');
+  } catch (err) {
+    if (!isAbortError(err) && request.isCurrent()) showToast(`Scene generation error: ${err.message}`, 'error');
+  } finally {
+    finishViewerLoad(request);
+  }
 }
 
 // Decode, parse, and load a file into the active viewer
-async function decodeAndLoadFile(file, loadingLabel = null) {
+async function decodeAndLoadFile(file, loadingLabel = null, request = null) {
   const ext = file.name.split('.').pop().toLowerCase();
-  showLoading(loadingLabel || `Loading and decoding .${ext} file...`);
-
+  request ||= beginViewerLoad(loadingLabel || `Loading and decoding .${ext} file...`);
+  updateViewerLoadLabel(request, loadingLabel || `Loading and decoding .${ext} file...`);
+  if (!request.isCurrent()) return false;
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    let decoded = null;
-    let formatName = '';
-    let depthName = '32-bit Float';
-    let isHDR = true;
-
-    if (ext === 'jxr' || ext === 'wdp') {
-      decoded = await decodeJXR(arrayBuffer);
-      formatName = 'JPEG XR (.jxr)';
-      depthName = 'Half/Full Float (HDR)';
-    } else if (ext === 'exr') {
-      decoded = decodeEXR(arrayBuffer);
-      formatName = 'OpenEXR (.exr)';
-    } else if (ext === 'hdr') {
-      decoded = decodeRGBE(arrayBuffer);
-      formatName = 'Radiance HDR (.hdr)';
-    } else if (ext === 'avif') {
-      decoded = await decodeAVIF(arrayBuffer, file);
-      formatName = decoded.isHDR ? 'AVIF (HDR)' : 'AVIF (SDR)';
-      depthName = decoded.isHDR ? '10-bit PQ/HLG (HDR)' : '8-bit Integer (SDR)';
-      isHDR = decoded.isHDR;
-    } else {
-      // Standard Web formats (PNG, JPG, WebP)
-      decoded = await decodeStandardImage(file);
-      formatName = 'SDR Image (Standard)';
-      depthName = '8-bit Integer (SDR)';
-      isHDR = false;
-    }
-
-    currentImage = {
-      name: file.name,
-      width: decoded.width,
-      height: decoded.height,
-      data: decoded.data,
-      isHDR: isHDR,
-      maxLuminance: calculateMaxLuminance(decoded.data)
-    };
-
-    renderer.setImage(currentImage.width, currentImage.height, currentImage.data);
-    updateMetadata(currentImage.name, formatName, currentImage.width, currentImage.height, depthName, 4);
-    updateMetadataDisplay();
-
-    // Handle SDR-exclusive controls visibility and state
-    toggleSdrExclusiveControls(isHDR);
-    if (isHDR) {
-      renderOptions.sdrBoost = 1.0;
-    } else {
-      showToast('SDR file loaded. You can use the "SDR Boost" slider to artificially expand dynamic range.');
-    }
-
-    requestRender();
-    showToast(`Loaded file: ${file.name}`);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const decoded = await processingClient.decodeImage(file, { signal: request.signal });
+    if (!request.isCurrent()) return false;
+    const warnings = commitDecodedImage(file.name, decoded);
+    showToast(warnings.length ? `Loaded file with warning: ${warnings.join(' ')}` : `Loaded file: ${file.name}`, warnings.length ? 'warning' : 'success');
     return true;
   } catch (err) {
-    showToast(`Error loading: ${err.message}`, 'error');
-    console.error(err);
+    if (!isAbortError(err) && request.isCurrent()) {
+      showToast(`Error loading: ${err.message}`, 'error');
+      console.error(err);
+    }
     return false;
   } finally {
-    hideLoading();
+    finishViewerLoad(request);
   }
 }
 
@@ -2204,12 +2234,10 @@ function clearGalleryState() {
   galleryFiles = [];
   galleryIndex = -1;
   galleryThumbnails = [];
-  galleryDecodingQueue = [];
-  isProcessingGalleryQueue = false;
 }
 
 // Parse and Load Single File
-function handleSingleFile(file) {
+function handleSingleFile(file, request = null) {
   if (!file) return;
 
   if (el.selectExampleScene) {
@@ -2225,18 +2253,20 @@ function handleSingleFile(file) {
   if (el.btnToggleGallery) el.btnToggleGallery.style.display = 'none';
   if (el.viewportContainer) el.viewportContainer.classList.remove('gallery-open');
 
-  setTimeout(() => {
-    decodeAndLoadFile(file);
-  }, 50);
+  return decodeAndLoadFile(file, null, request);
 }
 
 // Traverse directories recursively to find files
-async function getAllFilesFromEntries(entries) {
+async function getAllFilesFromEntries(entries, { signal } = {}) {
   const fileList = [];
   const maxFiles = 300;
   let limitReached = false;
+  const throwIfAborted = () => {
+    if (signal?.aborted) throw signal.reason || new DOMException('The operation was aborted.', 'AbortError');
+  };
 
   const traverse = async (entry) => {
+    throwIfAborted();
     if (limitReached) return;
 
     if (entry.isFile) {
@@ -2248,8 +2278,10 @@ async function getAllFilesFromEntries(entries) {
         const file = await new Promise((resolve, reject) => {
           entry.file(resolve, reject);
         });
+        throwIfAborted();
         fileList.push(file);
       } catch (fileErr) {
+        if (signal?.aborted) throwIfAborted();
         console.error(`Failed to read file ${entry.name}:`, fileErr);
       }
     } else if (entry.isDirectory) {
@@ -2266,18 +2298,23 @@ async function getAllFilesFromEntries(entries) {
 
       try {
         let dirEntries = await readEntries();
+        throwIfAborted();
         while (dirEntries.length > 0 && !limitReached) {
           for (const childEntry of dirEntries) {
+            throwIfAborted();
             try {
               await traverse(childEntry);
             } catch (traverseErr) {
+              if (signal?.aborted) throwIfAborted();
               console.error(`Error traversing ${childEntry.name}:`, traverseErr);
             }
             if (limitReached) break;
           }
           dirEntries = await readEntries();
+          throwIfAborted();
         }
       } catch (err) {
+        if (signal?.aborted) throwIfAborted();
         console.error(`Failed to read directory ${entry.name}:`, err);
         if (window.location.protocol === 'file:') {
           showToast(`Browser blocked directory access. Use a local server (npm run dev) instead of file://.`, 'error');
@@ -2287,6 +2324,7 @@ async function getAllFilesFromEntries(entries) {
   };
 
   for (const entry of entries) {
+    throwIfAborted();
     if (limitReached) break;
     await traverse(entry);
   }
@@ -2299,7 +2337,7 @@ async function getAllFilesFromEntries(entries) {
 }
 
 // Handle multiple files loaded into the gallery
-async function handleMultipleFiles(files) {
+async function handleMultipleFiles(files, request = null) {
   const supportedExtensions = ['jxr', 'wdp', 'exr', 'hdr', 'avif', 'png', 'jpg', 'jpeg', 'webp'];
   const imageFiles = files.filter(file => {
     const ext = file.name.split('.').pop().toLowerCase();
@@ -2308,8 +2346,10 @@ async function handleMultipleFiles(files) {
 
   if (imageFiles.length === 0) {
     showToast('No supported image files found in selection.', 'error');
+    if (request) finishViewerLoad(request);
     return;
   }
+  if (request && !request.isCurrent()) return;
 
   clearGalleryState();
 
@@ -2331,13 +2371,13 @@ async function handleMultipleFiles(files) {
   }
 
   renderGalleryThumbnailsUI();
-  loadGalleryImage(0);
+  return loadGalleryImage(0, request);
 }
 
 // Build UI elements for thumbnails track
 function renderGalleryThumbnailsUI() {
   if (!el.galleryTrack) return;
-  el.galleryTrack.innerHTML = '';
+  el.galleryTrack.replaceChildren();
   
   galleryFiles.forEach((file, index) => {
     const item = document.createElement('div');
@@ -2355,6 +2395,8 @@ function renderGalleryThumbnailsUI() {
       // Native browser formats: render standard image instantly using object URL
       const img = document.createElement('img');
       img.className = 'gallery-thumb-img';
+      img.loading = 'lazy';
+      img.decoding = 'async';
       
       let url = galleryThumbnails[index];
       if (!url) {
@@ -2367,14 +2409,26 @@ function renderGalleryThumbnailsUI() {
       // Non-native HDR formats: render a beautiful glassmorphic placeholder card
       const placeholder = document.createElement('div');
       placeholder.className = 'gallery-thumb-placeholder';
-
-      placeholder.innerHTML = `
-        <svg class="gallery-thumb-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/>
-          <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-        </svg>
-        <span class="gallery-thumb-badge ext-${ext}">${ext}</span>
-      `;
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.classList.add('gallery-thumb-icon');
+      icon.setAttribute('width', '20');
+      icon.setAttribute('height', '20');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'currentColor');
+      icon.setAttribute('stroke-width', '2');
+      icon.setAttribute('stroke-linecap', 'round');
+      icon.setAttribute('stroke-linejoin', 'round');
+      const page = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      page.setAttribute('d', 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z');
+      const fold = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      fold.setAttribute('d', 'M14 2v4a2 2 0 0 0 2 2h4');
+      icon.append(page, fold);
+      const badge = document.createElement('span');
+      const safeExt = ext.replace(/[^a-z0-9-]/g, '');
+      badge.className = `gallery-thumb-badge ext-${safeExt}`;
+      badge.textContent = safeExt;
+      placeholder.append(icon, badge);
       imgWrapper.appendChild(placeholder);
     }
 
@@ -2397,7 +2451,7 @@ function renderGalleryThumbnailsUI() {
 }
 
 // Load specific image from gallery
-function loadGalleryImage(index) {
+function loadGalleryImage(index, request = null) {
   if (index < 0 || index >= galleryFiles.length) return;
 
   const items = el.galleryTrack.querySelectorAll('.gallery-thumb-item');
@@ -2421,9 +2475,7 @@ function loadGalleryImage(index) {
   }
 
   const ext = file.name.split('.').pop().toLowerCase();
-  setTimeout(() => {
-    decodeAndLoadFile(file, `Loading and decoding .${ext} file (${index + 1}/${galleryFiles.length})...`);
-  }, 50);
+  return decodeAndLoadFile(file, `Loading and decoding .${ext} file (${index + 1}/${galleryFiles.length})...`, request);
 }
 
 // Navigate gallery prev/next
@@ -2433,37 +2485,6 @@ function navigateGallery(direction) {
   if (nextIndex < 0) nextIndex = galleryFiles.length - 1;
   if (nextIndex >= galleryFiles.length) nextIndex = 0;
   loadGalleryImage(nextIndex);
-}
-
-// Decode standard SDR formats using HTML Image + Canvas 2D
-function decodeStandardImage(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, img.width, img.height);
-      const numPixels = img.width * img.height;
-      const floatData = new Float32Array(numPixels * 4);
-
-      // Convert standard 0-255 uint8 values to 0.0-1.0 float values
-      for (let i = 0; i < numPixels * 4; i++) {
-        floatData[i] = imgData.data[i] / 255.0;
-      }
-      resolve({ width: img.width, height: img.height, data: floatData });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to decode image. The file may be corrupted.'));
-    };
-    img.src = url;
-  });
 }
 
 // Update UI Sidebar Metadata Details
@@ -2476,6 +2497,42 @@ function updateMetadata(name, format, width, height, depth, channels) {
   el.metaResolution.textContent = `${width} × ${height} px`;
   el.metaDepth.textContent = depth;
   el.metaChannels.textContent = `${channels} (RGBA)`;
+}
+
+function commitDecodedImage(name, decoded, metadata = {}) {
+  if (!decoded?.data || !decoded.width || !decoded.height) {
+    throw new Error('The decoder returned an empty image.');
+  }
+  const info = { ...formatDecodedInfo(name, decoded), ...metadata };
+  const nextImage = {
+    ...decoded,
+    name,
+    isHDR: info.decodedHDR,
+    sourceHDR: info.sourceHDR,
+    sourceHDRKnown: info.sourceHDRKnown,
+    decodedHDR: info.decodedHDR,
+    colorSpace: decoded.colorSpace || 'linear-rec709',
+    luminanceUnit: decoded.luminanceUnit || 'relative',
+    alpha: decoded.alpha || 'straight',
+    warnings: decoded.warnings || [],
+    maxLuminance: decoded.maxLuminance ?? calculateMaxLuminance(decoded.data)
+  };
+  commitRenderedImage(renderer, nextImage, (image) => {
+    currentImage = image;
+  });
+  cachedHistogram = null;
+
+  updateMetadata(name, info.format, nextImage.width, nextImage.height, info.depth, 4);
+  updateMetadataDisplay();
+  toggleSdrExclusiveControls(nextImage.decodedHDR);
+  if (nextImage.decodedHDR) {
+    renderOptions.sdrBoost = 1.0;
+  } else {
+    renderOptions.sdrBoost = renderOptions.sdrBoost || 1.0;
+  }
+  requestRender();
+
+  return currentImage.warnings;
 }
 
 // Interactive Viewport Events: Mouse interactions (Pan / Drag Divider)
@@ -2509,6 +2566,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
+  if (activePointerId !== null && e.pointerId !== activePointerId) return;
   if (!currentImage.data) {
     updatePixelHUD(null);
     return;
@@ -2529,12 +2587,11 @@ function onMouseMove(e) {
     const dx = e.clientX - startMouseX;
     const dy = e.clientY - startMouseY;
     
-    // Smooth panning responsive to zoom factor
-    const factorX = (2.0 / renderer.zoom) * (currentImage.width / rect.width);
-    const factorY = (2.0 / renderer.zoom) * (currentImage.height / rect.height);
-
-    renderer.panX = startPanX + (dx / rect.width) * factorX;
-    renderer.panY = startPanY + (dy / rect.height) * factorY; // webgl y starts from bottom
+    const delta = panDeltaForClientDelta({ dx, dy, zoom: renderer.zoom,
+      width: rect.width, height: rect.height, imageWidth: currentImage.width,
+      imageHeight: currentImage.height, previewMode: renderOptions.previewMode });
+    renderer.panX = startPanX + delta.x;
+    renderer.panY = startPanY + delta.y;
     requestRender();
   } else {
     // Set dynamic cursor on hover
@@ -2593,80 +2650,29 @@ function onWheel(e) {
     renderer.setZoom(renderer.zoom / zoomFactor);
   }
 
-  // Shift pan slightly towards cursor focal point
-  const actualRatio = renderer.zoom / oldZoom;
-  const u = (mouseX / rect.width) - 0.5;
-  const v = 0.5 - (mouseY / rect.height); // WebGL Y coordinate flip
-  
-  renderer.panX += u * (1.0 / oldZoom - 1.0 / renderer.zoom);
-  renderer.panY += v * (1.0 / oldZoom - 1.0 / renderer.zoom);
+  const pan = panForZoom({ x: mouseX, y: mouseY, oldZoom, newZoom: renderer.zoom,
+    panX: renderer.panX, panY: renderer.panY, width: rect.width, height: rect.height,
+    imageWidth: currentImage.width, imageHeight: currentImage.height,
+    previewMode: renderOptions.previewMode });
+  renderer.setPan(pan.x, pan.y);
 
   requestRender();
 }
-// Calculate HDR luminance (nits) before tone mapping, matching the shader logic
+function pixelProcessingOptions() {
+  return {
+    ...renderOptions,
+    sourceHDR: currentImage.sourceHDR,
+    decodedHDR: currentImage.decodedHDR,
+    luminanceUnit: currentImage.luminanceUnit,
+    smartUpmix: currentImage.decodedHDR ? false : renderOptions.smartUpmix,
+    sdrBoost: currentImage.decodedHDR ? 1.0 : renderOptions.sdrBoost
+  };
+}
+
 function calculateHdrNits(r, g, b, options) {
-  let color = [r, g, b];
-
-  // 1. Smart SDR-to-HDR upmix or linear boost
-  if (options.smartUpmix) {
-    const L = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-    if (L > 0.0) {
-      const th = 0.75;
-      let L_new = L;
-      if (L > th) {
-        const t = (L - th) / (1.0 - th);
-        L_new = th + (L - th) * (1.0 + (options.sdrBoost - 1.0) * t);
-      }
-      const scale = L_new / L;
-      color[0] *= scale;
-      color[1] *= scale;
-      color[2] *= scale;
-    }
-  } else {
-    color[0] *= options.sdrBoost;
-    color[1] *= options.sdrBoost;
-    color[2] *= options.sdrBoost;
-  }
-
-  // 2. Exposure Offset (stops)
-  let exposure = options.exposure;
-  if (options.autoExposureCorrect) {
-    exposure += Math.log2(80.0 / options.sdrWhite);
-  }
-  const expFactor = Math.pow(2.0, exposure);
-  color[0] *= expFactor;
-  color[1] *= expFactor;
-  color[2] *= expFactor;
-
-  // 3. Color Grading (Temp, Tint, Shadows, Highlights)
-  color[0] += options.temp * 0.12 - options.tint * 0.06;
-  color[1] += options.tint * 0.12;
-  color[2] += -options.temp * 0.12 - options.tint * 0.06;
-  color[0] = Math.max(0.0, color[0]);
-  color[1] = Math.max(0.0, color[1]);
-  color[2] = Math.max(0.0, color[2]);
-
-  const L_grad = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-  const shadowMask = Math.pow(1.0 - Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-  const highlightMask = Math.pow(Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-  color[0] += color[0] * options.shadows * shadowMask;
-  color[1] += color[1] * options.shadows * shadowMask;
-  color[2] += color[2] * options.shadows * shadowMask;
-  color[0] += color[0] * options.highlights * highlightMask;
-  color[1] += color[1] * options.highlights * highlightMask;
-  color[2] += color[2] * options.highlights * highlightMask;
-  color[0] = Math.max(0.0, color[0]);
-  color[1] = Math.max(0.0, color[1]);
-  color[2] = Math.max(0.0, color[2]);
-
-  // Saturation
-  const L_sat = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-  color[0] = L_sat + (color[0] - L_sat) * options.saturation;
-  color[1] = L_sat + (color[1] - L_sat) * options.saturation;
-  color[2] = L_sat + (color[2] - L_sat) * options.saturation;
-
-  const finalLuminance = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-  return Math.max(0.0, finalLuminance * options.sdrWhite);
+  const graded = applyGrade([r, g, b], options);
+  const luminance = 0.2126 * graded[0] + 0.7152 * graded[1] + 0.0722 * graded[2];
+  return Math.max(0, luminance * getReferenceNits(options));
 }
 
 // Pixel HUD Inspector logic
@@ -2684,17 +2690,10 @@ function updatePixelHUD(mouseData) {
   const clientYRatio = y / rect.height;
   let isSdrSide = false;
 
-  const canvasAspect = rect.width / rect.height;
-  let effectiveCanvasAspect = canvasAspect;
-  let effectiveXRatio = clientXRatio;
-
   if (renderOptions.previewMode === 'side-by-side') {
-    effectiveCanvasAspect = canvasAspect * 0.5;
     if (clientXRatio < 0.5) {
-      effectiveXRatio = clientXRatio * 2.0;
       isSdrSide = true;
     } else {
-      effectiveXRatio = (clientXRatio - 0.5) * 2.0;
       isSdrSide = false;
     }
   } else if (renderOptions.previewMode === 'split') {
@@ -2711,37 +2710,21 @@ function updatePixelHUD(mouseData) {
     isSdrSide = null; // Blend mode uses a custom layout mix
   }
 
-  // WebGL coordinate calculations matching shader aspect fits
-  let aspectScaleX = 1.0;
-  let aspectScaleY = 1.0;
-  const imageAspect = imgW / imgH;
-
-  if (effectiveCanvasAspect > imageAspect) {
-    aspectScaleX = imageAspect / effectiveCanvasAspect;
-  } else {
-    aspectScaleY = effectiveCanvasAspect / imageAspect;
-  }
-
-  // Map viewport client coordinate back to normal center-based [-0.5, 0.5] range
-  const nx = effectiveXRatio - 0.5;
-  const ny = 0.5 - clientYRatio; // Flip Y
-
-  // Apply inverse aspect scale, inverse zoom and inverse pan
-  let u = nx / aspectScaleX;
-  let v = ny / aspectScaleY;
-
-  u = u / renderer.zoom + 0.5 - renderer.panX;
-  v = v / renderer.zoom + 0.5 - renderer.panY;
+  const uv = viewportToImageUV({ x, y, width: rect.width, height: rect.height,
+    imageWidth: imgW, imageHeight: imgH, zoom: renderer.zoom,
+    panX: renderer.panX, panY: renderer.panY, previewMode: renderOptions.previewMode });
+  if (!uv) { el.pixelHud.style.display = 'none'; return; }
+  const { u, v } = uv;
 
   // If outside actual image bounds, hide HUD
-  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) {
+  if (u < 0.0 || u >= 1.0 || v < 0.0 || v >= 1.0) {
     el.pixelHud.style.display = 'none';
     return;
   }
 
   // Get raw pixel index
   const px = Math.floor(u * imgW);
-  const py = Math.floor((1.0 - v) * imgH); // Flip Y back for standard row index
+  const py = Math.floor(v * imgH);
   const idx = (py * imgW + px) * 4;
 
   const data = currentImage.data;
@@ -2754,86 +2737,30 @@ function updatePixelHUD(mouseData) {
   const g = data[idx + 1];
   const b = data[idx + 2];
 
-  let nits = 0.0;
-  let finalR = r;
-  let finalG = g;
-  let finalB = b;
-
-  const sdr_gamma_map = (val) => {
-    let clamped = Math.min(1.0, Math.max(0.0, val));
-    return Math.pow(clamped, 1.0 / 2.2);
-  };
+  let nits;
+  let finalColor = [r, g, b].map(value => linearToSrgb(Math.min(1.0, Math.max(0.0, value))));
+  const processingOptions = pixelProcessingOptions();
+  const nitsPerUnit = getReferenceNits({ ...renderOptions, luminanceUnit: currentImage.luminanceUnit });
 
   if (isSdrSide === true) {
-    // SDR path: standard clamp and 2.2 gamma
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    nits = Math.max(0.0, luminance * renderOptions.sdrWhite);
-    finalR = sdr_gamma_map(r);
-    finalG = sdr_gamma_map(g);
-    finalB = sdr_gamma_map(b);
+    nits = Math.max(0.0, luminance * nitsPerUnit);
   } else {
-    // HDR path: uses the lazily instantiated cachedHdrToneMapper
-    if (!cachedHdrToneMapper) {
-      let resolvedExposure = renderOptions.exposure;
-      let resolvedOperator = renderOptions.toneMapper === 0 ? 'linear' :
-                             renderOptions.toneMapper === 1 ? 'reinhard' :
-                             renderOptions.toneMapper === 2 ? 'aces' :
-                             renderOptions.toneMapper === 3 ? 'hable' :
-                             renderOptions.toneMapper === 4 ? 'lottes' :
-                             renderOptions.toneMapper === 5 ? 'uchimura' : 'linear';
-
-      cachedHdrToneMapper = createToneMapperFunc(
-        resolvedExposure,
-        resolvedOperator,
-        renderOptions.gamma,
-        renderOptions.contrast,
-        renderOptions.sdrWhite,
-        renderOptions.targetPeak,
-        renderOptions.autoExposureCorrect,
-        {
-          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
-          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
-          saturation: renderOptions.saturation,
-          highlights: renderOptions.highlights,
-          shadows: renderOptions.shadows,
-          temp: renderOptions.temp,
-          tint: renderOptions.tint
-        }
-      );
-    }
-
-    const resolvedOptions = {
-      ...renderOptions,
-      sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
-      smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix
-    };
-
+    const hdrColor = renderSdrRgb([r, g, b], processingOptions);
+    const hdrNits = calculateHdrNits(r, g, b, processingOptions);
     if (isSdrSide === false) {
-      nits = calculateHdrNits(r, g, b, resolvedOptions);
-      const mapped = cachedHdrToneMapper(r, g, b);
-      finalR = mapped[0];
-      finalG = mapped[1];
-      finalB = mapped[2];
+      nits = hdrNits;
+      finalColor = hdrColor;
     } else {
-      // Blend mode (isSdrSide === null)
-      const sdrNits = Math.max(0.0, (0.2126 * r + 0.7152 * g + 0.0722 * b) * renderOptions.sdrWhite);
-      const hdrNits = calculateHdrNits(r, g, b, resolvedOptions);
+      const sdrNits = Math.max(0.0, (0.2126 * r + 0.7152 * g + 0.0722 * b) * nitsPerUnit);
       const opacity = renderOptions.blendOpacity / 100.0;
-
       nits = sdrNits + (hdrNits - sdrNits) * opacity;
-
-      const sdrColor = [sdr_gamma_map(r), sdr_gamma_map(g), sdr_gamma_map(b)];
-      const hdrColor = cachedHdrToneMapper(r, g, b);
-      finalR = sdrColor[0] + (hdrColor[0] - sdrColor[0]) * opacity;
-      finalG = sdrColor[1] + (hdrColor[1] - sdrColor[1]) * opacity;
-      finalB = sdrColor[2] + (hdrColor[2] - sdrColor[2]) * opacity;
+      finalColor = finalColor.map((value, index) => value + (hdrColor[index] - value) * opacity);
     }
   }
 
   // Convert to 0-255 range
-  const sdrR = Math.round(finalR * 255);
-  const sdrG = Math.round(finalG * 255);
-  const sdrB = Math.round(finalB * 255);
+  const [sdrR, sdrG, sdrB] = finalColor.map(value => Math.round(value * 255));
 
   // Update DOM HUD values
   el.hudPos.textContent = `X: ${px}, Y: ${py}`;
@@ -2926,7 +2853,7 @@ function drawHistogram() {
     };
   }
 
-  const { histR, histG, histB, histLum, maxBinVal, totalSamples } = cachedHistogram;
+  const { histR, histG, histB, histLum, maxBinVal } = cachedHistogram;
 
   // Account for tick labels space at the bottom if expanded
   const axisHeight = histogramState.expanded ? 20 : 0;
@@ -3122,7 +3049,7 @@ function updateHistogramTooltip() {
   const binIdx = Math.max(0, Math.min(numBins - 1, Math.floor(ratio * numBins)));
 
   const lum = mapBinToLuminance(binIdx, numBins);
-  const nitVal = lum * renderOptions.sdrWhite;
+  const nitVal = lum * getReferenceNits({ ...renderOptions, luminanceUnit: currentImage.luminanceUnit });
   const totalSamples = cachedHistogram.totalSamples;
 
   const pctLum = ((cachedHistogram.histLum[binIdx] / totalSamples) * 100).toFixed(2);
@@ -3182,401 +3109,54 @@ function updateHistogramTooltip() {
 }
 
 // Single Image Export
-function exportImage() {
+async function exportImage() {
   if (!currentImage.data) return;
 
+  const image = { ...currentImage };
+  const options = { ...renderOptions };
   const format = el.selectExportFormat.value;
-  const filename = currentImage.name.replace(/\.[^/.]+$/, ""); // strip extension
+  const filename = image.name.replace(/\.[^/.]+$/, '');
+  const quality = Number.parseInt(el.sliderJpegQuality.value, 10) / 100;
+  const alphaMode = document.getElementById('select-export-alpha-mode')?.value || 'preserve';
+  const pixelMode = document.getElementById('select-export-pixel-mode')?.value || 'processed';
+  const loadingToken = showLoading(`Generating ${format.toUpperCase()} file...`);
 
-  if (format === 'hdr') {
-    // HDR Export: encode Float32Array directly to .hdr RGBE format
-    showLoading('Generating HDR file...');
-    setTimeout(() => {
-      try {
-        const fileBytes = encodeRGBE(currentImage.width, currentImage.height, currentImage.data);
-        downloadBlob(new Blob([fileBytes], { type: 'image/vnd.radiance' }), `${filename}_converted.hdr`);
-        showToast('Successfully exported Radiance HDR file!');
-      } catch (err) {
-        showToast('Export error: ' + err.message, 'error');
-      } finally {
-        hideLoading();
-      }
-    }, 50);
-  } else if (format.startsWith('png') && format !== 'png') {
-    // Custom High Bit-Depth PNG Export (10/12/16-bit SDR/HDR)
-    showLoading('Generating high bit-depth PNG file...');
-    setTimeout(async () => {
-      try {
-        const isSdr = format.endsWith('sdr');
-        const bitDepth = format.includes('10') ? 10 : format.includes('12') ? 12 : 16;
-        
-        let transfer = 'linear';
-        if (format.endsWith('pq')) {
-          transfer = 'pq';
-        } else if (format.endsWith('hlg')) {
-          transfer = 'hlg';
-        }
-        
-        let toneMapperFunc = null;
-        if (isSdr) {
-          const activeOperator = renderOptions.toneMapper === 0 ? 'linear' :
-                                 renderOptions.toneMapper === 1 ? 'reinhard' :
-                                 renderOptions.toneMapper === 2 ? 'aces' :
-                                 renderOptions.toneMapper === 3 ? 'hable' :
-                                 renderOptions.toneMapper === 4 ? 'lottes' :
-                                 renderOptions.toneMapper === 5 ? 'uchimura' : 'linear';
-          
-          toneMapperFunc = createToneMapperFunc(
-            renderOptions.exposure,
-            activeOperator,
-            renderOptions.gamma,
-            renderOptions.contrast,
-            renderOptions.sdrWhite,
-            renderOptions.targetPeak,
-            renderOptions.autoExposureCorrect,
-            {
-              sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
-              smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
-              saturation: renderOptions.saturation,
-              highlights: renderOptions.highlights,
-              shadows: renderOptions.shadows,
-              temp: renderOptions.temp,
-              tint: renderOptions.tint
-            }
-          );
-        }
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blob = await exportImageBlob(image, options, {
+      format,
+      quality,
+      alphaMode,
+      pixelMode
+    });
+    if (!(blob instanceof Blob)) throw new Error('The encoder returned an empty file.');
 
-        let resolvedExposure = renderOptions.exposure;
-        if (renderOptions.autoExposureCorrect) {
-          resolvedExposure += Math.log2(80.0 / renderOptions.sdrWhite);
-        }
-
-        const pngBytes = await encodePNG(currentImage.width, currentImage.height, currentImage.data, {
-          bitDepth: bitDepth,
-          type: isSdr ? 'sdr' : 'hdr',
-          transfer: transfer,
-          exposure: resolvedExposure,
-          contrast: renderOptions.contrast,
-          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost,
-          sdrWhite: renderOptions.sdrWhite,
-          maxLuminance: currentImage.maxLuminance,
-          toneMapperFunc: toneMapperFunc,
-          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
-          saturation: renderOptions.saturation,
-          highlights: renderOptions.highlights,
-          shadows: renderOptions.shadows,
-          temp: renderOptions.temp,
-          tint: renderOptions.tint
-        });
-
-        downloadBlob(new Blob([pngBytes], { type: 'image/png' }), `${filename}_converted.png`);
-        showToast(`Successfully exported ${bitDepth}-bit ${isSdr ? 'SDR' : 'HDR'} PNG file!`);
-      } catch (err) {
-        showToast('Export error: ' + err.message, 'error');
-      } finally {
-        hideLoading();
-      }
-    }, 50);
-  } else {
-    // SDR Export (PNG 8-bit, JPEG, WebP)
-    // To preserve full image resolution, we resize the WebGL canvas to native resolution,
-    // render, read pixels, and restore original viewport viewport size.
-    showLoading('Processing output image...');
-    
-    setTimeout(() => {
-      try {
-        const w = currentImage.width;
-        const h = currentImage.height;
-
-        // Resize Canvas to original image dimensions
-        el.canvas.width = w;
-        el.canvas.height = h;
-        
-        // Render with full quality (temporarily hiding split comparison line and disabling native HDR)
-        let exposure = renderOptions.exposure;
-        if (renderOptions.autoExposureCorrect) {
-          exposure += Math.log2(80.0 / renderOptions.sdrWhite);
-        }
-        
-        const options = {
-          ...renderOptions,
-          previewMode: 'hdr',
-          splitX: 0.0,
-          splitY: 0.0,
-          heatmap: false,
-          clippingWarning: false,
-          nativeHdr: false, // Ensure standard tone-mapped SDR output
-          exposure: exposure,
-          toneMapWhite: renderOptions.targetPeak / renderOptions.sdrWhite,
-          smartUpmix: currentImage.isHDR ? false : renderOptions.smartUpmix,
-          sdrBoost: currentImage.isHDR ? 1.0 : renderOptions.sdrBoost
-        };
-        
-        // Temporarily reset pan and zoom for export to capture the whole image
-        const oldZoom = renderer.zoom;
-        const oldPanX = renderer.panX;
-        const oldPanY = renderer.panY;
-        renderer.zoom = 1.0;
-        renderer.panX = 0.0;
-        renderer.panY = 0.0;
-        
-        renderer.render(options, true);
-        
-        // Read back the tone-mapped 8-bit pixels from canvas buffer
-        const pixels = renderer.readPixels();
-        
-        // Restore zoom and pan
-        renderer.zoom = oldZoom;
-        renderer.panX = oldPanX;
-        renderer.panY = oldPanY;
-        
-        // Restore screen layout size
-        el.canvas.width = el.canvas.clientWidth;
-        el.canvas.height = el.canvas.clientHeight;
-        requestRender();
-
-        // Write the readback pixels onto a temporary Canvas 2D for download creation
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = w;
-        exportCanvas.height = h;
-        const exportCtx = exportCanvas.getContext('2d');
-        const imgData = exportCtx.createImageData(w, h);
-        imgData.data.set(pixels);
-        exportCtx.putImageData(imgData, 0, 0);
-
-        // Download
-        if (format === 'png') {
-          exportCanvas.toBlob((blob) => {
-            downloadBlob(blob, `${filename}_converted.png`);
-            showToast('Exported PNG file!');
-            hideLoading();
-          }, 'image/png');
-        } else if (format === 'webp') {
-          exportCanvas.toBlob((blob) => {
-            downloadBlob(blob, `${filename}_converted.webp`);
-            showToast('Exported WebP file!');
-            hideLoading();
-          }, 'image/webp');
-        } else {
-          const quality = parseInt(el.sliderJpegQuality.value, 10) / 100.0;
-          exportCanvas.toBlob((blob) => {
-            downloadBlob(blob, `${filename}_converted.jpg`);
-            showToast('Exported JPEG file!');
-            hideLoading();
-          }, 'image/jpeg', quality);
-        }
-      } catch (err) {
-        showToast('Export error: ' + err.message, 'error');
-        hideLoading();
-      }
-    }, 50);
+    const extension = format === 'jpeg' ? 'jpg' : format === 'hdr' ? 'hdr' : format === 'webp' ? 'webp' : 'png';
+    downloadBlob(blob, `${filename}_converted.${extension}`);
+    showToast(`Successfully exported ${format.toUpperCase()} file!`);
+  } catch (err) {
+    showToast(`Export error: ${err.message}`, 'error');
+    console.error(err);
+  } finally {
+    hideLoading(loadingToken);
   }
 }
 
 // Download blob helper
 function downloadBlob(blob, name) {
+  if (!(blob instanceof Blob)) throw new TypeError('Cannot download an empty export.');
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  // Delay revocation to ensure browser has started downloading
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 1000);
-}
-
-
-// Unified function to create a tone mapper matching WebGL and CPU pipelines
-function createToneMapperFunc(exposure, operator, gamma, contrast, sdrWhite = 200.0, targetPeak = 1000.0, autoExposureCorrect = true, extraOptions = {}) {
-  let finalExposure = exposure;
-  if (autoExposureCorrect) {
-    finalExposure += Math.log2(80.0 / sdrWhite);
+  try {
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    // Delay revocation to ensure browser has started downloading.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const expFactor = Math.pow(2.0, finalExposure);
-  const whiteVal = Math.max(0.01, targetPeak / sdrWhite);
-
-  const sdrBoost = extraOptions.sdrBoost !== undefined ? extraOptions.sdrBoost : 1.0;
-  const smartUpmix = extraOptions.smartUpmix !== undefined ? extraOptions.smartUpmix : true;
-  const saturation = extraOptions.saturation !== undefined ? extraOptions.saturation : 1.0;
-  const highlights = extraOptions.highlights !== undefined ? extraOptions.highlights : 0.0;
-  const shadows = extraOptions.shadows !== undefined ? extraOptions.shadows : 0.0;
-  const temp = extraOptions.temp !== undefined ? extraOptions.temp : 0.0;
-  const tint = extraOptions.tint !== undefined ? extraOptions.tint : 0.0;
-
-  const aces = (v) => {
-    const a = 2.51; const b = 0.03; const c = 2.43; const d = 0.59; const e = 0.14;
-    return Math.min(1.0, Math.max(0.0, (v * (a * v + b)) / (v * (c * v + d) + e)));
-  };
-
-  const hableOp = (v) => {
-    const A = 0.15; const B = 0.50; const C = 0.10; const D = 0.20; const E = 0.02; const F = 0.30;
-    return ((v * (A * v + C * B) + D * E) / (v * (A * v + B) + D * F)) - E / F;
-  };
-
-  // Lottes parameters
-  const a_lottes = 1.6;
-  const d_lottes = 0.977;
-  const hdrMax_lottes = whiteVal;
-  const midIn_lottes = 0.18;
-  const midOut_lottes = 0.267;
-  const denom_lottes = Math.max(1e-5, Math.pow(hdrMax_lottes, a_lottes * d_lottes) * midOut_lottes - Math.pow(midIn_lottes, a_lottes * d_lottes) * midOut_lottes);
-  const b_lottes = (-Math.pow(midIn_lottes, a_lottes) + (midOut_lottes * Math.pow(hdrMax_lottes, a_lottes * d_lottes) * Math.pow(midIn_lottes, a_lottes)) / denom_lottes) / (Math.pow(midIn_lottes, a_lottes * d_lottes) * midOut_lottes);
-  const c_lottes = (Math.pow(hdrMax_lottes, a_lottes * d_lottes) * Math.pow(midIn_lottes, a_lottes) - Math.pow(hdrMax_lottes, a_lottes) * Math.pow(midIn_lottes, a_lottes * d_lottes) * midOut_lottes) / denom_lottes;
-
-  const lottesOp = (v) => {
-    const z = Math.pow(Math.max(0.0, v), a_lottes);
-    return Math.min(1.0, Math.max(0.0, z / (Math.pow(z, d_lottes) * b_lottes + c_lottes)));
-  };
-
-  // Uchimura parameters
-  const P_u = 1.0;
-  const a_u = 1.0;
-  const m_u = 0.22;
-  const l_u = 0.4;
-  const c_u = 1.33;
-  const b_u = 0.0;
-  const l0_u = ((P_u - m_u) * l_u) / a_u;
-  const S0_u = m_u + l0_u;
-  const S1_u = m_u + a_u * l0_u;
-  const C2_u = (a_u * P_u) / (P_u - S1_u);
-  const CP_u = -C2_u / P_u;
-
-  const uchimuraOp = (v) => {
-    const scaledX = v * (5.0 / whiteVal);
-    if (scaledX <= 0.0) return b_u;
-    
-    let val = 0;
-    if (scaledX < m_u) {
-      const t = Math.min(1.0, Math.max(0.0, scaledX / m_u));
-      const w0 = 1.0 - (t * t * (3.0 - 2.0 * t));
-      const T = m_u * Math.pow(scaledX / m_u, c_u) + b_u;
-      const L = m_u + a_u * (scaledX - m_u);
-      val = T * w0 + L * (1.0 - w0);
-    } else if (scaledX >= m_u + l0_u) {
-      val = P_u - (P_u - S1_u) * Math.exp(CP_u * (scaledX - S0_u));
-    } else {
-      val = m_u + a_u * (scaledX - m_u);
-    }
-    return Math.min(1.0, Math.max(0.0, val));
-  };
-  
-  const whiteAces = aces(whiteVal);
-  const hableWhiteScale = hableOp(whiteVal);
-
-  return (r, g, b) => {
-    let color = [r, g, b];
-
-    // 1. Smart SDR-to-HDR upmix or linear boost
-    if (smartUpmix) {
-      const L = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-      if (L > 0.0) {
-        const th = 0.75;
-        let L_new = L;
-        if (L > th) {
-          const t = (L - th) / (1.0 - th);
-          L_new = th + (L - th) * (1.0 + (sdrBoost - 1.0) * t);
-        }
-        const scale = L_new / L;
-        color[0] *= scale;
-        color[1] *= scale;
-        color[2] *= scale;
-      }
-    } else {
-      color[0] *= sdrBoost;
-      color[1] *= sdrBoost;
-      color[2] *= sdrBoost;
-    }
-
-    // 2. Exposure Offset (stops)
-    color[0] *= expFactor;
-    color[1] *= expFactor;
-    color[2] *= expFactor;
-
-    // 3. Color Grading (Temp, Tint, Shadows, Highlights, Saturation)
-    color[0] += temp * 0.12 - tint * 0.06;
-    color[1] += tint * 0.12;
-    color[2] += -temp * 0.12 - tint * 0.06;
-    color[0] = Math.max(0.0, color[0]);
-    color[1] = Math.max(0.0, color[1]);
-    color[2] = Math.max(0.0, color[2]);
-
-    const L_grad = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-    const shadowMask = Math.pow(1.0 - Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-    const highlightMask = Math.pow(Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-    color[0] += color[0] * shadows * shadowMask;
-    color[1] += color[1] * shadows * shadowMask;
-    color[2] += color[2] * shadows * shadowMask;
-    color[0] += color[0] * highlights * highlightMask;
-    color[1] += color[1] * highlights * highlightMask;
-    color[2] += color[2] * highlights * highlightMask;
-    color[0] = Math.max(0.0, color[0]);
-    color[1] = Math.max(0.0, color[1]);
-    color[2] = Math.max(0.0, color[2]);
-
-    const L_sat = 0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2];
-    color[0] = L_sat + (color[0] - L_sat) * saturation;
-    color[1] = L_sat + (color[1] - L_sat) * saturation;
-    color[2] = L_sat + (color[2] - L_sat) * saturation;
-    color[0] = Math.max(0.0, color[0]);
-    color[1] = Math.max(0.0, color[1]);
-    color[2] = Math.max(0.0, color[2]);
-
-    // Apply tone mapper operator
-    let mapped = [color[0], color[1], color[2]];
-    if (operator === 'reinhard') {
-      const toneMap = (v) => v * (1.0 + v / (whiteVal * whiteVal)) / (v + 1.0);
-      mapped[0] = toneMap(mapped[0]);
-      mapped[1] = toneMap(mapped[1]);
-      mapped[2] = toneMap(mapped[2]);
-    } else if (operator === 'aces') {
-      const acesOp = (v) => aces(v) / (whiteAces > 0.0 ? whiteAces : 1.0);
-      mapped[0] = acesOp(mapped[0]);
-      mapped[1] = acesOp(mapped[1]);
-      mapped[2] = acesOp(mapped[2]);
-    } else if (operator === 'hable') {
-      const hableOp2 = (v) => hableOp(v) / (hableWhiteScale > 0.0 ? hableWhiteScale : 1.0);
-      mapped[0] = hableOp2(mapped[0]);
-      mapped[1] = hableOp2(mapped[1]);
-      mapped[2] = hableOp2(mapped[2]);
-    } else if (operator === 'lottes') {
-      mapped[0] = lottesOp(mapped[0]);
-      mapped[1] = lottesOp(mapped[1]);
-      mapped[2] = lottesOp(mapped[2]);
-    } else if (operator === 'uchimura') {
-      mapped[0] = uchimuraOp(mapped[0]);
-      mapped[1] = uchimuraOp(mapped[1]);
-      mapped[2] = uchimuraOp(mapped[2]);
-    } else {
-      mapped[0] = Math.min(1.0, Math.max(0.0, mapped[0]));
-      mapped[1] = Math.min(1.0, Math.max(0.0, mapped[1]));
-      mapped[2] = Math.min(1.0, Math.max(0.0, mapped[2]));
-    }
-
-    mapped[0] = Math.min(1.0, Math.max(0.0, mapped[0]));
-    mapped[1] = Math.min(1.0, Math.max(0.0, mapped[1]));
-    mapped[2] = Math.min(1.0, Math.max(0.0, mapped[2]));
-
-    // Apply contrast
-    if (contrast !== 1.0) {
-      mapped[0] = Math.pow(mapped[0], contrast);
-      mapped[1] = Math.pow(mapped[1], contrast);
-      mapped[2] = Math.pow(mapped[2], contrast);
-    }
-
-    // Apply display gamma
-    mapped[0] = Math.pow(mapped[0], 1.0 / gamma);
-    mapped[1] = Math.pow(mapped[1], 1.0 / gamma);
-    mapped[2] = Math.pow(mapped[2], 1.0 / gamma);
-
-    return [
-      Math.min(1.0, Math.max(0.0, mapped[0])),
-      Math.min(1.0, Math.max(0.0, mapped[1])),
-      Math.min(1.0, Math.max(0.0, mapped[2]))
-    ];
-  };
 }
 
 

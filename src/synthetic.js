@@ -313,7 +313,7 @@ function generateLandscape(width, height, data) {
     for (let x = 0; x < width; x++) {
       const idx = rowOffset + x * 4;
 
-      let r = 0.0, g = 0.0, b = 0.0;
+      let r, g, b;
 
       // Silhouette mountain height profiles
       const h1 = height * 0.46 + height * 0.08 * noise(x, 0.004) + height * 0.02 * noise(x, 0.012);
@@ -500,7 +500,7 @@ function generateNeon(width, height, data) {
               
               if (rand(winSeed) > 0.65) {
                 const colorSeed = rand(winSeed * 7.7);
-                let winColor = [1.2, 1.2, 1.2];
+                let winColor;
                 let winIntensity = 1.0 + rand(winSeed * 13.0) * 3.0; // 200 - 800 nits
 
                 if (colorSeed < 0.25) winColor = [1.5, 0.1, 0.1];

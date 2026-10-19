@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumina HDR pipeline checks</title>
+<style>
+  body { font: 15px system-ui; background:#14161b; color:#eee; margin:24px; }
+  li { margin:12px 0; white-space:pre-wrap; }
+  .pass { color:#8ee8a1; } .fail { color:#ffa0a0; }
+  canvas { width:320px; height:80px; image-rendering:pixelated; }
+</style>
+<h1>Lumina HDR browser pipeline checks</h1>
+<p id="status" role="status">Running…</p>
+<ol id="results"></ol>
+<div id="fixture"></div>
+<script type="module">
+import { WebGLRenderer } from '/src/renderer.js';
+import { exportImageBlob } from '/src/services/export-image.js';
+import { decodeImage } from '/src/services/decode-image.js';
+import { encodeRGBE } from '/src/decoders/rgbe.js';
+
+const results = [];
+const list = document.querySelector('#results');
+async function check(name, fn) {
+  const item = document.createElement('li');
+  list.append(item);
+  try {
+    const detail = await fn();
+    item.className = 'pass';
+    item.textContent = `PASS: ${name}${detail ? '\n' + detail : ''}`;
+    results.push({name, status:'PASS', detail});
+  } catch (error) {
+    item.className = 'fail';
+    item.textContent = `FAIL: ${name}\n${error.message}`;
+    results.push({name, status:'FAIL', detail:error.message});
+  }
+}
+function ensure(condition, message) { if (!condition) throw new Error(message); }
+function srgb(value) {
+  return value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+}
+async function inspectPng(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  const chunks = [];
+  for (let offset = 8; offset < bytes.length;) {
+    const length = view.getUint32(offset);
+    const type = new TextDecoder().decode(bytes.subarray(offset + 4, offset + 8));
+    chunks.push({type, data:bytes.slice(offset + 8, offset + 8 + length)});
+    offset += length + 12;
+  }
+  const compressed = new Blob(chunks.filter(c => c.type === 'IDAT').map(c => c.data));
+  const raw = new Uint8Array(await new Response(compressed.stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  const depth = chunks.find(c => c.type === 'IHDR').data[8];
+  // Our high-bit encoder uses filter None. Keep this an independent container check.
+  ensure(raw[0] === 0, 'Expected PNG filter None for the one-row fixture');
+  const values = [];
+  const rawView = new DataView(raw.buffer);
+  for(let offset=1; offset<raw.length; offset+=depth / 8) {
+    values.push(depth === 16 ? rawView.getUint16(offset) / 65535 : raw[offset] / 255);
+  }
+  return {chunks,values};
+}
+const canvas = document.createElement('canvas');
+canvas.width = 5; canvas.height = 1;
+document.querySelector('#fixture').append(canvas);
+let renderer;
+await check('WebGL2 initializes', () => {
+  renderer = new WebGLRenderer(canvas);
+  return `WebGL2 available (${navigator.userAgent})`;
+});
+
+const neutral = {
+  exposure:0,gamma:2.2,contrast:1,sdrBoost:1,toneMapper:0,toneMapWhite:5,
+  targetPeak:1000,sdrWhite:200,autoExposureCorrect:false,previewMode:'hdr',
+  splitX:0,splitY:0,blendOpacity:0.5,nativeHdr:false,heatmap:false,
+  clippingWarning:false,smartUpmix:false,saturation:1,shadows:0,
+  highlights:0,temp:0,tint:0,
+};
+const samples = [0,0.0031308,0.18,0.5,1];
+const image = {width:5,height:1,
+  data:new Float32Array(samples.flatMap(value => [value,value,value,1])),
+  colorSpace:'linear-rec709',luminanceUnit:'relative',sourceHDR:false,decodedHDR:false,alpha:'straight',
+};
+await check('Neutral GPU SDR output uses the sRGB transfer', () => {
+  ensure(renderer, 'WebGL2 unavailable');
+  renderer.setImage(image.width,image.height,image.data);
+  renderer.render(neutral,true);
+  const pixels = renderer.readPixels();
+  const observed = samples.map((_,i) => pixels[i*4]);
+  const expected = samples.map(value => Math.round(srgb(value)*255));
+  ensure(observed.every((value,i) => Math.abs(value-expected[i]) <= 1),
+    `observed=${observed}, expected=${expected}`);
+  return `Observed ${observed}; expected ${expected}`;
+});
+
+for (const toneMapper of [0,1,2,3,4,5]) {
+  await check(`GPU / CPU PNG16 parity, operator ${toneMapper}, with grading`, async () => {
+    ensure(renderer, 'WebGL2 unavailable');
+    const graded = {...neutral,toneMapper,exposure:-0.5,gamma:2.4,contrast:1.1,
+      saturation:0.8,shadows:0.15,highlights:-0.1,temp:0.08,tint:-0.03};
+    renderer.setImage(image.width,image.height,image.data);
+    renderer.render(graded,true);
+    const pixels = renderer.readPixels();
+    const blob = await exportImageBlob(image,graded,{format:'png16sdr',alphaMode:'preserve'});
+    const png = await inspectPng(blob);
+    let maxError=0;
+    png.values.forEach((value,i) => { if(i%4 !==3) maxError=Math.max(maxError,Math.abs(pixels[i]/255-value)); });
+    ensure(maxError <= 2/255, `maximum channel difference=${maxError}`);
+    return `Maximum channel difference=${maxError.toFixed(6)}`;
+  });
+}
+
+await check('Native SDR PNG import → neutral SDR export preserves pixels and alpha', async () => {
+  const source = document.createElement('canvas'); source.width=3; source.height=1;
+  const ctx=source.getContext('2d');
+  const expected=new Uint8ClampedArray([0,0,0,255,128,128,128,255,64,192,128,128]);
+  ctx.putImageData(new ImageData(expected,3,1),0,0);
+  const blob=await new Promise((resolve,reject) => source.toBlob(value => value ? resolve(value) : reject(new Error('fixture toBlob failed'))));
+  const decoded=await decodeImage(new File([blob],'neutral.png',{type:'image/png'}));
+  const out=await exportImageBlob(decoded,neutral,{format:'png',alphaMode:'preserve'});
+  const bitmap=await createImageBitmap(out);
+  ctx.clearRect(0,0,3,1); ctx.drawImage(bitmap,0,0); bitmap.close();
+  const observed=ctx.getImageData(0,0,3,1).data;
+  const maxError=Math.max(...observed.map((value,i) => Math.abs(value-expected[i])));
+  ensure(maxError<=2, `observed=${[...observed]}, expected=${[...expected]}`);
+  return `Maximum 8-bit channel difference=${maxError}`;
+});
+
+await check('RGBE service import and processed HDR export apply exposure', async () => {
+  const bytes=encodeRGBE(1,1,new Float32Array([0.25,0.5,1,1]));
+  const decoded=await decodeImage(new File([bytes],'source.hdr'));
+  const blob=await exportImageBlob(decoded,{...neutral,exposure:1},{format:'hdr',alphaMode:'preserve'});
+  const roundTrip=await decodeImage(new File([blob],'processed.hdr'));
+  const expected=[0.5,1,2];
+  ensure(expected.every((value,i) => Math.abs(roundTrip.data[i]-value)<0.02),`RGB=${[...roundTrip.data].slice(0,3)}`);
+  return `Processed RGB=${[...roundTrip.data].slice(0,3)}`;
+});
+
+for (const code of [512,768]) {
+  await check(`PQ AVIF code ${code}: verified absolute HDR or explicit SDR fallback`, async () => {
+    const response=await fetch(`/tests/fixtures/pq-gray-${code}.avif`);
+    ensure(response.ok,'Unable to load the generated PQ fixture');
+    const image=await decodeImage(new File([await response.blob()],`pq-gray-${code}.avif`,{type:'image/avif'}));
+    ensure(image.sourceHDR===true,'PQ source metadata must remain HDR for dark and bright scenes');
+    if (!image.decodedHDR) {
+      ensure(image.warnings?.length,'SDR fallback must explain that HDR information was lost');
+      return `Explicit SDR fallback: ${image.warnings.join('; ')}`;
+    }
+    const p=(code/1023)**(1/(2523/32));
+    const expectedNits=10000*(Math.max(p-3424/4096,0)/(2413/128-(2392/128)*p))**(1/(2610/16384));
+    const observedNits=image.data[0]*80;
+    ensure(Math.abs(observedNits-expectedNits)/expectedNits<0.02,
+      `Expected ${expectedNits} nits, got ${observedNits} nits (linear value ${image.data[0]})`);
+    return `Expected ${expectedNits.toFixed(3)} nits; observed ${observedNits.toFixed(3)} nits`;
+  });
+}
+
+await check('Worker exports process an HDR-source SDR fallback like ordinary SDR pixels', async () => {
+  const base={width:1,height:1,data:new Float32Array([0.1,0.2,0.3,1]),
+    colorSpace:'linear-rec709',luminanceUnit:'relative',decodedHDR:false,alpha:'opaque'};
+  for (const format of ['png16sdr','png16pq','hdr']) {
+    const settings={...neutral,sdrBoost:2};
+    const plain=new Uint8Array(await (await exportImageBlob({...base,sourceHDR:false},settings,{format})).arrayBuffer());
+    const fallback=new Uint8Array(await (await exportImageBlob({...base,sourceHDR:true},settings,{format})).arrayBuffer());
+    ensure(plain.length===fallback.length && plain.every((value,i)=>value===fallback[i]),
+      `${format}: sourceHDR provenance changed SDR fallback processing`);
+  }
+  return 'PNG16 SDR, PQ and RGBE worker outputs match for equivalent decoded pixel data';
+});
+
+await check('HLG AVIF uses the 1000-nit reference display OOTF', async () => {
+  const response=await fetch('/tests/fixtures/hlg-gray-512.avif');
+  ensure(response.ok,'Unable to load HLG fixture');
+  const image=await decodeImage(new File([await response.blob()],'hlg-gray-512.avif',{type:'image/avif'}));
+  ensure(image.sourceHDR && image.decodedHDR,'HLG metadata and high-bit samples must be retained');
+  const code=512/1023;
+  const a=0.17883277,b=1-4*a,c=0.5-a*Math.log(4*a);
+  const scene=code<=0.5 ? code*code/3 : (Math.exp((code-c)/a)+b)/12;
+  const expectedNits=1000*scene**1.2;
+  const observedNits=image.data[0]*80;
+  ensure(Math.abs(expectedNits-observedNits)/expectedNits<0.02,
+    `Expected ${expectedNits} nits, got ${observedNits} nits`);
+  return `Expected ${expectedNits.toFixed(3)} nits; observed ${observedNits.toFixed(3)} nits`;
+});
+
+await check('Graphics context recovery restores the active texture', async () => {
+  ensure(renderer,'WebGL2 unavailable');
+  const extension=renderer.gl.getExtension('WEBGL_lose_context');
+  if (!extension) return 'WEBGL_lose_context unavailable; recovery simulation was not exercised';
+  renderer.setImage(image.width,image.height,image.data);
+  renderer.render(neutral,true);
+  const before=[...renderer.readPixels()];
+  await new Promise((resolve,reject) => {
+    const timer=setTimeout(()=>reject(new Error('Context restoration timed out')),4000);
+    canvas.addEventListener('webglcontextrestored',()=>{clearTimeout(timer);resolve();},{once:true});
+    canvas.addEventListener('webglcontextlost',()=>setTimeout(()=>extension.restoreContext(),30),{once:true});
+    extension.loseContext();
+  });
+  // Recovery redraws the normal CSS-sized viewport; compare identical export dimensions.
+  canvas.width=image.width;
+  canvas.height=image.height;
+  renderer.render(neutral,true);
+  const after=[...renderer.readPixels()];
+  const maxError=before.reduce((error,value,i)=>Math.max(error,Math.abs(value-after[i])),0);
+  ensure(before.length===after.length && maxError<=1,
+    `restored output differs: ${before.length}/${after.length} bytes, max error ${maxError}`);
+  return 'Source texture and SDR output survived a simulated graphics-context loss';
+});
+
+renderer?.dispose?.();
+const failed=results.filter(result=>result.status==='FAIL').length;
+document.querySelector('#status').textContent=`Completed: ${results.length-failed} passed, ${failed} failed.`;
+document.documentElement.dataset.result=failed ? 'fail' : 'pass';
+</script>
+</html>

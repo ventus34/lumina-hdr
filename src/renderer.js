@@ -1,3 +1,5 @@
+import { getReferenceNits } from './color/pipeline.js';
+
 /**
  * WebGL2 Renderer for High Precision Floating-Point Images.
  * Provides GPU-accelerated rendering, real-time tone mapping, split-screen comparisons,
@@ -44,6 +46,7 @@ uniform float u_blend_opacity; // [0.0, 1.0]
 // Native HDR uniforms
 uniform int u_native_hdr; // 0 = standard SDR, 1 = native Rec2100 PQ
 uniform float u_sdr_white; // SDR Reference White in nits (e.g., 200)
+uniform float u_input_white; // linear input unit in nits (80 for scRGB, SDR white otherwise)
 
 // Visualizations & Overlays
 uniform int u_heatmap; // 0 = disabled, 1 = enabled
@@ -76,6 +79,18 @@ const float c3 = 18.6875;
 vec3 linearToPQ(vec3 linearColor) {
   vec3 cp = pow(max(linearColor, 0.0) / 10000.0, vec3(m1));
   return pow((c1 + c2 * cp) / (1.0 + c3 * cp), vec3(m2));
+}
+
+vec3 linearToSRGB(vec3 linearColor) {
+  vec3 x = max(linearColor, vec3(0.0));
+  vec3 lo = 12.92 * x;
+  vec3 hi = 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055;
+  return mix(hi, lo, lessThanEqual(x, vec3(0.0031308)));
+}
+
+vec3 encodeSDR(vec3 linearColor) {
+  vec3 encoded = linearToSRGB(linearColor);
+  return pow(max(encoded, vec3(0.0)), vec3(2.2 / max(u_gamma, 0.01)));
 }
 
 // Tone Mapping Operators
@@ -120,7 +135,7 @@ vec3 Lottes(vec3 x, float white) {
   float denom = pow(hdrMax, a * d) * midOut - pow(midIn, a * d) * midOut;
   denom = max(denom, 1e-5);
 
-  float b = (-pow(midIn, a) + (midOut * pow(hdrMax, a * d) * pow(midIn, a)) / denom) / (pow(midIn, a * d) * midOut);
+  float b = (-pow(midIn, a) + pow(hdrMax, a) * midOut) / ((pow(hdrMax, a * d) - pow(midIn, a * d)) * midOut);
   float c = (pow(hdrMax, a * d) * pow(midIn, a) - pow(hdrMax, a) * pow(midIn, a * d) * midOut) / denom;
 
   vec3 z = pow(max(x, vec3(0.0)), vec3(a));
@@ -179,7 +194,7 @@ vec3 computeSDR(vec3 rawColor) {
     vec3 color2020 = RGB709to2020 * colorInNits;
     return linearToPQ(color2020);
   } else {
-    return pow(color, vec3(1.0 / 2.2));
+    return encodeSDR(color);
   }
 }
 
@@ -209,22 +224,19 @@ vec3 computeHDR(vec3 rawColor, out float outNits, out bool outClipping) {
   color.r += u_temp * 0.12 - u_tint * 0.06;
   color.g += u_tint * 0.12;
   color.b += -u_temp * 0.12 - u_tint * 0.06;
-  color = max(color, 0.0);
 
   float L_grad = dot(color, vec3(0.2126, 0.7152, 0.0722));
   float shadowMask = pow(1.0 - clamp(L_grad, 0.0, 1.0), 2.0);
   float highlightMask = pow(clamp(L_grad, 0.0, 1.0), 2.0);
   color += color * u_shadows * shadowMask;
   color += color * u_highlights * highlightMask;
-  color = max(color, 0.0);
 
   float L_sat = dot(color, vec3(0.2126, 0.7152, 0.0722));
   color = mix(vec3(L_sat), color, u_saturation);
-  color = max(color, 0.0);
 
   // Save nits before tone mapping
   float finalLuminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  outNits = finalLuminance * u_sdr_white;
+  outNits = max(finalLuminance, 0.0) * u_input_white;
 
   // Determine clipping (exceeding tone mapping white limit)
   float whiteVal = max(0.01, u_tone_map_white);
@@ -232,10 +244,12 @@ vec3 computeHDR(vec3 rawColor, out float outNits, out bool outClipping) {
 
   // 4. Tone Mapping & Color Space encoding
   if (u_native_hdr == 1) {
-    vec3 colorInNits = color * u_sdr_white;
+    vec3 colorInNits = color * u_input_white;
     vec3 color2020 = RGB709to2020 * colorInNits;
     return linearToPQ(color2020);
   } else {
+    // SDR output cannot encode negative linear Rec.709 components.
+    color = max(color, 0.0);
     vec3 mapped;
     if (u_tone_mapper == 1) {
       mapped = Reinhard(color, whiteVal);
@@ -256,7 +270,7 @@ vec3 computeHDR(vec3 rawColor, out float outNits, out bool outClipping) {
       mapped = pow(mapped, vec3(u_contrast));
     }
 
-    return pow(mapped, vec3(1.0 / u_gamma));
+    return encodeSDR(mapped);
   }
 }
 
@@ -375,8 +389,17 @@ void main() {
 `;
 
 export class WebGLRenderer {
-  constructor(canvas) {
+  constructor(canvas, { maxImageBytes = 512 * 1024 * 1024, useDevicePixelRatio = true } = {}) {
+    if (!canvas || typeof canvas.getContext !== 'function') throw new TypeError('WebGLRenderer requires a canvas element.');
     this.canvas = canvas;
+    this.maxImageBytes = maxImageBytes;
+    this.useDevicePixelRatio = useDevicePixelRatio;
+    this.disposed = false;
+    this.contextLost = false;
+    this.imageData = null;
+    this.lastOptions = null;
+    this.positionBuffer = null;
+    this.capabilities = null;
     this.gl = canvas.getContext('webgl2', {
       alpha: false,
       depth: false,
@@ -387,24 +410,14 @@ export class WebGLRenderer {
     });
 
     if (!this.gl) {
-      throw new Error('WebGL2 is not supported on this browser/hardware.');
+      throw new Error('WebGL 2 is unavailable. This browser or graphics device cannot render HDR images.');
     }
-
-    // Enable floating point texture extensions and filtering support
-    this.gl.getExtension('EXT_color_buffer_float');
-    this.floatLinearExt = this.gl.getExtension('OES_texture_float_linear');
-    this.halfFloatLinearExt = this.gl.getExtension('OES_texture_half_float_linear');
-
-    console.log('Lumina HDR Renderer - WebGL Extensions:', {
-      EXT_color_buffer_float: !!this.gl.getExtension('EXT_color_buffer_float'),
-      OES_texture_float_linear: !!this.floatLinearExt,
-      OES_texture_half_float_linear: !!this.halfFloatLinearExt
-    });
 
     this.program = null;
     this.texture = null;
     this.imageWidth = 1;
     this.imageHeight = 1;
+    this.refreshCapabilities();
 
     // Camera variables
     this.zoom = 1.0;
@@ -413,32 +426,126 @@ export class WebGLRenderer {
 
     this.initShaders();
     this.initBuffers();
+    this.onContextLost = (event) => {
+      event?.preventDefault?.();
+      this.contextLost = true;
+    };
+    this.onContextRestored = () => {
+      if (this.disposed) return;
+      this.contextLost = false;
+      this.refreshCapabilities();
+      this.initShaders();
+      this.initBuffers();
+      this.texture = null;
+      if (this.imageData) {
+        const { width, height, data } = this.imageData;
+        this.setImage(width, height, data, { resetView: false });
+      }
+      if (this.lastOptions) {
+        const nativeHdr = Boolean(this.lastOptions.nativeHdr);
+        if (!this.setDrawingBufferColorSpace(nativeHdr) && nativeHdr) {
+          this.lastOptions = { ...this.lastOptions, nativeHdr: false };
+          const CustomEventConstructor = globalThis.CustomEvent;
+          if (CustomEventConstructor) {
+            this.canvas.dispatchEvent?.(new CustomEventConstructor('lumina:native-hdr-unavailable'));
+          }
+        }
+      }
+      if (this.lastOptions) this.render(this.lastOptions);
+    };
+    canvas.addEventListener?.('webglcontextlost', this.onContextLost, false);
+    canvas.addEventListener?.('webglcontextrestored', this.onContextRestored, false);
+  }
+
+  refreshCapabilities() {
+    const gl = this.gl;
+    if (!gl || gl.isContextLost?.()) {
+      this.capabilities = { webgl2: false, contextLost: true };
+      return this.capabilities;
+    }
+    const floatColorBuffer = gl.getExtension('EXT_color_buffer_float');
+    this.floatLinearExt = gl.getExtension('OES_texture_float_linear');
+    this.halfFloatLinearExt = gl.getExtension('OES_texture_half_float_linear');
+    this.capabilities = Object.freeze({
+      webgl2: true,
+      floatColorBuffer: Boolean(floatColorBuffer),
+      floatLinearFiltering: Boolean(this.floatLinearExt),
+      halfFloatLinearFiltering: Boolean(this.halfFloatLinearExt),
+      maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      maxRenderbufferSize: gl.getParameter(gl.MAX_RENDERBUFFER_SIZE),
+      maxViewportDimensions: gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+    });
+    return this.capabilities;
+  }
+
+  assertUsable() {
+    if (this.disposed) throw new Error('The WebGL renderer has been disposed.');
+    if (this.contextLost || this.gl?.isContextLost?.()) {
+      this.contextLost = true;
+      throw new Error('The graphics context was lost. Wait for it to recover, then retry the image operation.');
+    }
+  }
+
+  setDrawingBufferColorSpace(nativeHdr) {
+    const gl = this.gl;
+    if (!gl || !('drawingBufferColorSpace' in gl)) return !nativeHdr;
+    const previous = gl.drawingBufferColorSpace;
+    const desired = nativeHdr ? 'rec2100-pq' : 'srgb';
+    try {
+      gl.drawingBufferColorSpace = desired;
+      if (gl.drawingBufferColorSpace === desired) return true;
+    } catch {
+      // Restore the last known setting if the browser rejected the request.
+    }
+    try { gl.drawingBufferColorSpace = previous; } catch { /* Keep the context's current setting. */ }
+    return false;
   }
 
   initShaders() {
+    this.assertUsable();
     const gl = this.gl;
 
     const vs = gl.createShader(gl.VERTEX_SHADER);
+    if (!vs) throw new Error('Could not allocate the WebGL vertex shader.');
     gl.shaderSource(vs, VERTEX_SHADER_SOURCE);
     gl.compileShader(vs);
     if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
-      throw new Error('Vertex shader compile error: ' + gl.getShaderInfoLog(vs));
+      const message = gl.getShaderInfoLog(vs) || 'unknown shader error';
+      gl.deleteShader(vs);
+      throw new Error('Vertex shader compile error: ' + message);
     }
 
     const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fs) {
+      gl.deleteShader(vs);
+      throw new Error('Could not allocate the WebGL fragment shader.');
+    }
     gl.shaderSource(fs, FRAGMENT_SHADER_SOURCE);
     gl.compileShader(fs);
     if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-      throw new Error('Fragment shader compile error: ' + gl.getShaderInfoLog(fs));
+      const message = gl.getShaderInfoLog(fs) || 'unknown shader error';
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      throw new Error('Fragment shader compile error: ' + message);
     }
 
     this.program = gl.createProgram();
+    if (!this.program) {
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      throw new Error('Could not allocate the WebGL shader program.');
+    }
     gl.attachShader(this.program, vs);
     gl.attachShader(this.program, fs);
     gl.linkProgram(this.program);
 
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-      throw new Error('Shader program linking error: ' + gl.getProgramInfoLog(this.program));
+      const message = gl.getProgramInfoLog(this.program) || 'unknown program error';
+      gl.deleteProgram(this.program);
+      this.program = null;
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      throw new Error('Shader program linking error: ' + message);
     }
 
     gl.deleteShader(vs);
@@ -446,6 +553,7 @@ export class WebGLRenderer {
   }
 
   initBuffers() {
+    this.assertUsable();
     const gl = this.gl;
     const vertices = new Float32Array([
       -1.0, -1.0,
@@ -457,12 +565,14 @@ export class WebGLRenderer {
     ]);
 
     const positionBuffer = gl.createBuffer();
+    if (!positionBuffer) throw new Error('Could not allocate the WebGL image buffer.');
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
 
     const positionAttributeLocation = gl.getAttribLocation(this.program, 'a_position');
     gl.enableVertexAttribArray(positionAttributeLocation);
     gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+    this.positionBuffer = positionBuffer;
   }
 
   /**
@@ -471,44 +581,52 @@ export class WebGLRenderer {
    * @param {number} height 
    * @param {Float32Array} floatData 
    */
-  setImage(width, height, floatData) {
-    const gl = this.gl;
-    this.imageWidth = width;
-    this.imageHeight = height;
-
-    if (this.texture) {
-      gl.deleteTexture(this.texture);
+  setImage(width, height, floatData, { resetView = true } = {}) {
+    this.assertUsable();
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+      throw new TypeError('Image dimensions must be positive integers.');
     }
-
-    this.texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    if (!floatData || floatData.length !== width * height * 4) {
+      throw new TypeError('Image data must contain exactly width × height × 4 RGBA values.');
+    }
+    if (!(floatData instanceof Float32Array)) {
+      throw new TypeError('Image data must be a Float32Array of linear RGBA values.');
+    }
+    const byteLength = floatData.byteLength ?? floatData.length * Float32Array.BYTES_PER_ELEMENT;
+    if (!Number.isFinite(this.maxImageBytes) || this.maxImageBytes < 0 || byteLength > this.maxImageBytes) {
+      throw new RangeError(`Image data uses ${(byteLength / (1024 * 1024)).toFixed(0)} MiB; the renderer limit is ${(this.maxImageBytes / (1024 * 1024)).toFixed(0)} MiB.`);
+    }
+    const gl = this.gl;
+    const maxTextureSize = this.capabilities?.maxTextureSize || gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (width > maxTextureSize || height > maxTextureSize) {
+      throw new RangeError(`Image dimensions ${width} × ${height} exceed this GPU's ${maxTextureSize}px texture limit.`);
+    }
+    const nextTexture = gl.createTexture();
+    if (!nextTexture) throw new Error('The graphics device could not allocate an image texture.');
+    gl.bindTexture(gl.TEXTURE_2D, nextTexture);
 
     // Set texture wrapping to clamp
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
     // Determine internal format and filtering mode based on browser extensions
-    let internalFormat = gl.RGBA32F;
-    let filterMode = gl.NEAREST;
-
-    if (this.floatLinearExt) {
-      // Browser supports linear filtering on 32-bit floats
-      internalFormat = gl.RGBA32F;
-      filterMode = gl.LINEAR;
-    } else if (this.halfFloatLinearExt) {
-      // Browser supports linear filtering on 16-bit half-floats.
-      // WebGL2 automatically converts FLOAT -> HALF_FLOAT during upload.
-      internalFormat = gl.RGBA16F;
-      filterMode = gl.LINEAR;
-    } else {
+    const internalFormat = this.floatLinearExt ? gl.RGBA32F : this.halfFloatLinearExt ? gl.RGBA16F : gl.RGBA32F;
+    const filterMode = this.floatLinearExt || this.halfFloatLinearExt ? gl.LINEAR : gl.NEAREST;
+    if (!this.floatLinearExt && !this.halfFloatLinearExt) {
       // No float linear filtering support at all. Fall back to nearest filtering.
-      internalFormat = gl.RGBA32F;
-      filterMode = gl.NEAREST;
       console.warn('Lumina HDR Renderer - Float texture linear filtering is not supported on this browser/hardware. Falling back to NEAREST filtering.');
     }
 
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filterMode);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filterMode);
+
+    // Clear a bounded number of unrelated stale errors before this upload.
+    let staleErrors = 0;
+    while (staleErrors < 16) {
+      const staleError = gl.getError();
+      if (staleError === gl.NO_ERROR) break;
+      staleErrors++;
+    }
 
     // Upload as floating point RGBA texture
     gl.texImage2D(
@@ -523,8 +641,21 @@ export class WebGLRenderer {
       floatData
     );
 
+    const uploadError = gl.getError();
+    if (uploadError !== gl.NO_ERROR) {
+      gl.deleteTexture(nextTexture);
+      const errorName = uploadError === gl.OUT_OF_MEMORY ? 'out of memory' : `WebGL error ${uploadError}`;
+      throw new Error(`The GPU could not upload this image (${errorName}). Try a smaller image or close other GPU-intensive tabs.`);
+    }
+
+    if (this.texture) gl.deleteTexture(this.texture);
+    this.texture = nextTexture;
+    this.imageWidth = width;
+    this.imageHeight = height;
+    this.imageData = { width, height, data: floatData };
+
     // Reset pan & zoom when loading a new image
-    this.resetView();
+    if (resetView) this.resetView();
   }
 
   resetView() {
@@ -546,9 +677,12 @@ export class WebGLRenderer {
    * Resize the WebGL canvas drawing buffer to match its display size.
    */
   resize() {
+    this.assertUsable();
     const canvas = this.canvas;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
+    const ratio = this.useDevicePixelRatio ? (globalThis.devicePixelRatio || 1) : 1;
+    const limits = this.capabilities?.maxViewportDimensions || [Infinity, Infinity];
+    const width = Math.max(1, Math.min(limits[0], Math.round((canvas.clientWidth || 1) * ratio)));
+    const height = Math.max(1, Math.min(limits[1], Math.round((canvas.clientHeight || 1) * ratio)));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -568,7 +702,10 @@ export class WebGLRenderer {
    * }} options 
    */
   render(options, isExport = false) {
+    this.assertUsable();
     const gl = this.gl;
+    options = options || {};
+    this.lastOptions = { ...options };
     if (!isExport) {
       this.resize();
     } else {
@@ -589,12 +726,19 @@ export class WebGLRenderer {
     gl.uniform1f(gl.getUniformLocation(this.program, 'u_canvas_aspect'), this.canvas.width / this.canvas.height);
 
     // Set tone mapping parameter uniforms
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_exposure'), options.exposure);
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_gamma'), options.gamma);
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_contrast'), options.contrast);
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_sdr_boost'), options.sdrBoost);
-    gl.uniform1i(gl.getUniformLocation(this.program, 'u_tone_mapper'), options.toneMapper);
-    gl.uniform1f(gl.getUniformLocation(this.program, 'u_tone_map_white'), options.toneMapWhite || 5.0);
+    const absoluteInput = options.luminanceUnit === 'scRGB-80-nit';
+    const inputWhite = absoluteInput ? 80 : (options.sdrWhite || 200);
+    const mappingWhite = getReferenceNits(options);
+    const toneMapWhite = options.targetPeak ? options.targetPeak / mappingWhite : (options.toneMapWhite || 5.0);
+    const exposure = (options.exposure || 0) + (options.autoExposureCorrect && !absoluteInput
+      ? Math.log2(80 / (options.sdrWhite || 200))
+      : 0);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_exposure'), exposure);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_gamma'), options.gamma ?? 2.2);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_contrast'), options.contrast ?? 1);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_sdr_boost'), options.sdrBoost ?? 1);
+    gl.uniform1i(gl.getUniformLocation(this.program, 'u_tone_mapper'), options.toneMapper ?? 0);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_tone_map_white'), toneMapWhite);
 
     // Set split-screen divider position
     gl.uniform1f(gl.getUniformLocation(this.program, 'u_split_x'), options.splitX);
@@ -612,6 +756,7 @@ export class WebGLRenderer {
     // Set native HDR uniforms
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_native_hdr'), options.nativeHdr ? 1 : 0);
     gl.uniform1f(gl.getUniformLocation(this.program, 'u_sdr_white'), options.sdrWhite || 200.0);
+    gl.uniform1f(gl.getUniformLocation(this.program, 'u_input_white'), inputWhite);
 
     // Set visualization overlays
     gl.uniform1i(gl.getUniformLocation(this.program, 'u_heatmap'), options.heatmap ? 1 : 0);
@@ -642,11 +787,17 @@ export class WebGLRenderer {
    * @returns {Uint8ClampedArray}
    */
   readPixels() {
+    this.assertUsable();
     const gl = this.gl;
     const w = this.canvas.width;
     const h = this.canvas.height;
+    if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w * h * 4 > Number.MAX_SAFE_INTEGER) {
+      throw new RangeError('The current canvas dimensions are invalid for pixel readback.');
+    }
     const pixels = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    const readError = gl.getError();
+    if (readError !== gl.NO_ERROR) throw new Error(`Could not read rendered pixels from the GPU (WebGL error ${readError}).`);
 
     // WebGL reads pixels bottom-to-top, so we flip the rows vertically
     const flippedPixels = new Uint8ClampedArray(w * h * 4);
@@ -664,5 +815,22 @@ export class WebGLRenderer {
     }
 
     return flippedPixels;
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    this.canvas.removeEventListener?.('webglcontextlost', this.onContextLost, false);
+    this.canvas.removeEventListener?.('webglcontextrestored', this.onContextRestored, false);
+    if (!this.contextLost && !this.gl?.isContextLost?.()) {
+      if (this.texture) this.gl.deleteTexture(this.texture);
+      if (this.positionBuffer) this.gl.deleteBuffer(this.positionBuffer);
+      if (this.program) this.gl.deleteProgram(this.program);
+    }
+    this.texture = null;
+    this.positionBuffer = null;
+    this.program = null;
+    this.imageData = null;
+    this.lastOptions = null;
+    this.disposed = true;
   }
 }

@@ -1,3 +1,5 @@
+import { applyGrade, convertPrimaries, encodeHlgRgb, encodeSdrChannel, getReferenceNits, encodeTransfer, srgbToLinear, DEFAULT_HLG_PEAK_NITS, DEFAULT_HLG_SYSTEM_GAMMA } from '../color/pipeline.js';
+
 /**
  * Pure JavaScript 16-bit PNG Encoder with sBIT (Significant Bits) support.
  * Designed for 10-bit, 12-bit, and 16-bit HDR/SDR exports.
@@ -86,115 +88,11 @@ function writeChunk(typeStr, dataBytes) {
   return chunkBytes;
 }
 
-// PQ Constants (SMPTE ST 2084)
-const m1 = 0.1593017578125;
-const m2 = 78.84375;
-const c1 = 0.8359375;
-const c2 = 18.8515625;
-const c3 = 18.6875;
-
-// PQ transfer function (Inverse EOTF: nits -> [0, 1] PQ)
-function linearToPQ(val) {
-  if (val <= 0.0) return 0.0;
-  const l_n = val / 10000.0;
-  const cp = Math.pow(l_n, m1);
-  return Math.pow((c1 + c2 * cp) / (1.0 + c3 * cp), m2);
-}
-
-// HLG transfer function (OETF)
-function linearToHLG(val) {
-  if (val <= 0.0) return 0.0;
-  if (val <= 1.0 / 12.0) {
-    return Math.sqrt(3.0 * val);
-  } else {
-    return 0.17883277 * Math.log(12.0 * val - 0.28466892) + 0.55991073;
-  }
-}
-
-// Helper to apply upmixing, exposure correction, color grading, and contrast on CPU
+// Backward-compatible helper. Grading lives in pipeline.js so CPU exports and
+// the renderer use the same linear-light operations.
 function preprocessPixel(r, g, b, options) {
-  const smartUpmix = options.smartUpmix || false;
-  const sdrBoost = options.sdrBoost !== undefined ? options.sdrBoost : 1.0;
-  const exposure = options.exposure !== undefined ? options.exposure : 0.0;
-  const temp = options.temp !== undefined ? options.temp : 0.0;
-  const tint = options.tint !== undefined ? options.tint : 0.0;
-  const shadows = options.shadows !== undefined ? options.shadows : 0.0;
-  const highlights = options.highlights !== undefined ? options.highlights : 0.0;
-  const saturation = options.saturation !== undefined ? options.saturation : 1.0;
-  const contrast = options.contrast !== undefined ? options.contrast : 1.0;
-
-  // 1. Smart upmix or linear boost
-  if (smartUpmix) {
-    const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    if (L > 0.0) {
-      const th = 0.75;
-      let L_new = L;
-      if (L > th) {
-        const t = (L - th) / (1.0 - th);
-        L_new = th + (L - th) * (1.0 + (sdrBoost - 1.0) * t);
-      }
-      const scale = L_new / L;
-      r *= scale;
-      g *= scale;
-      b *= scale;
-    }
-  } else if (sdrBoost !== 1.0) {
-    r *= sdrBoost;
-    g *= sdrBoost;
-    b *= sdrBoost;
-  }
-
-  // 2. Exposure Offset (stops)
-  if (exposure !== 0.0) {
-    const expFactor = Math.pow(2.0, exposure);
-    r *= expFactor;
-    g *= expFactor;
-    b *= expFactor;
-  }
-
-  // 3. Color Grading (Temp, Tint, Shadows, Highlights, Saturation)
-  if (temp !== 0.0 || tint !== 0.0) {
-    r += temp * 0.12 - tint * 0.06;
-    g += tint * 0.12;
-    b += -temp * 0.12 - tint * 0.06;
-    r = Math.max(r, 0.0);
-    g = Math.max(g, 0.0);
-    b = Math.max(b, 0.0);
-  }
-
-  if (shadows !== 0.0 || highlights !== 0.0) {
-    const L_grad = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const shadowMask = Math.pow(1.0 - Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-    const highlightMask = Math.pow(Math.min(1.0, Math.max(0.0, L_grad)), 2.0);
-    r += r * shadows * shadowMask;
-    g += g * shadows * shadowMask;
-    b += b * shadows * shadowMask;
-    r += r * highlights * highlightMask;
-    g += g * highlights * highlightMask;
-    b += b * highlights * highlightMask;
-    r = Math.max(r, 0.0);
-    g = Math.max(g, 0.0);
-    b = Math.max(b, 0.0);
-  }
-
-  if (saturation !== 1.0) {
-    const L_sat = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    r = L_sat + (r - L_sat) * saturation;
-    g = L_sat + (g - L_sat) * saturation;
-    b = L_sat + (b - L_sat) * saturation;
-    r = Math.max(r, 0.0);
-    g = Math.max(g, 0.0);
-    b = Math.max(b, 0.0);
-  }
-
-  // 4. Contrast
-  if (contrast !== 1.0) {
-    r = Math.pow(Math.max(0.0, r), contrast);
-    g = Math.pow(Math.max(0.0, g), contrast);
-    b = Math.pow(Math.max(0.0, b), contrast);
-  }
-
-  return [r, g, b];
+  if (options.processed) return [r, g, b];
+  return applyGrade([r, g, b], options);
 }
 
 // Build raw scanlines with PNG filter method 0 (None)
@@ -206,42 +104,19 @@ function buildPngRawData(width, height, floatData, bitDepth, options) {
 
   let rawIdx = 0;
   const maxVal = (1 << bitDepth) - 1;
-  const shift = 16 - bitDepth;
 
   const type = options.type || 'hdr';
   const transfer = options.transfer || 'linear';
   const toneMapperFunc = options.toneMapperFunc;
 
   // Extract parameters
-  const sdrWhite = options.sdrWhite !== undefined ? options.sdrWhite : 200.0;
-  const maxLuminance = options.maxLuminance || 1.0;
-
-  // Calculate linear scale factors
-  const safeMaxLuminance = maxLuminance > 0 ? maxLuminance : 1.0;
-  const linearScaleFactor = maxVal / safeMaxLuminance;
-
-  // If HLG, scan first to find peak component value
-  let hlgNorm = 12.0;
-  if (type === 'hdr' && transfer === 'hlg') {
-    let maxComponent = 1.0;
-    const numPixels = width * height;
-    for (let i = 0; i < numPixels; i++) {
-      const idx = i * 4;
-      const [rp, gp, bp] = preprocessPixel(
-        floatData[idx],
-        floatData[idx + 1],
-        floatData[idx + 2],
-        options
-      );
-      const r_2020 = 0.6274040 * rp + 0.3292820 * gp + 0.0433136 * bp;
-      const g_2020 = 0.0690970 * rp + 0.9195400 * gp + 0.0113612 * bp;
-      const b_2020 = 0.0163916 * rp + 0.0880132 * gp + 0.8955950 * bp;
-      if (r_2020 > maxComponent) maxComponent = r_2020;
-      if (g_2020 > maxComponent) maxComponent = g_2020;
-      if (b_2020 > maxComponent) maxComponent = b_2020;
-    }
-    hlgNorm = Math.max(12.0, maxComponent);
-  }
+  const referenceNits = options.referenceNits || getReferenceNits(options);
+  const linearScaleNits = Math.max(1, options.linearScaleNits || options.targetPeak || 1000);
+  const background = Array.isArray(options.backgroundColor)
+    ? options.backgroundColor
+    : typeof options.backgroundColor === 'string' && /^#[\da-f]{6}$/i.test(options.backgroundColor)
+      ? [1, 3, 5].map((i) => srgbToLinear(parseInt(options.backgroundColor.slice(i, i + 2), 16) / 255))
+      : [1, 1, 1];
 
   for (let y = 0; y < height; y++) {
     rawData[rawIdx++] = 0; // Filter Type = 0 (None)
@@ -254,22 +129,34 @@ function buildPngRawData(width, height, floatData, bitDepth, options) {
       let b = floatData[srcIdx + 2];
       let a = floatData[srcIdx + 3];
 
-      // Guard against NaN / undefined / missing alpha / zero alpha from HDR screenshots
-      if (isNaN(a) || a === undefined || options.forceOpaque) a = 1.0;
+      // Missing alpha is opaque; valid zero alpha is preserved unless requested otherwise.
+      if (!Number.isFinite(a) || options.alphaMode === 'opaque' || options.forceOpaque) a = 1.0;
+      a = Math.min(1, Math.max(0, a));
+
+      if (options.alphaMode === 'flatten') {
+        r = r * a + background[0] * (1 - a);
+        g = g * a + background[1] * (1 - a);
+        b = b * a + background[2] * (1 - a);
+        a = 1;
+      } else if (options.alphaMode && options.alphaMode !== 'preserve' && options.alphaMode !== 'opaque') {
+        throw new TypeError(`Unknown alpha mode: ${options.alphaMode}`);
+      }
 
       let ri, gi, bi, ai;
 
       if (type === 'sdr') {
         // SDR: apply tone mapper function to clamp output to 0.0-1.0
-        if (toneMapperFunc) {
+        if (options.processed) {
+          // Caller already applied grading, tone mapping and the output transfer.
+        } else if (toneMapperFunc) {
           const mapped = toneMapperFunc(r, g, b);
           r = mapped[0];
           g = mapped[1];
           b = mapped[2];
         } else {
-          r = Math.min(1.0, Math.max(0.0, r));
-          g = Math.min(1.0, Math.max(0.0, g));
-          b = Math.min(1.0, Math.max(0.0, b));
+          r = encodeSdrChannel(Math.min(1, Math.max(0, r)), options.gamma ?? 2.2);
+          g = encodeSdrChannel(Math.min(1, Math.max(0, g)), options.gamma ?? 2.2);
+          b = encodeSdrChannel(Math.min(1, Math.max(0, b)), options.gamma ?? 2.2);
         }
         a = Math.min(1.0, Math.max(0.0, a));
 
@@ -280,48 +167,34 @@ function buildPngRawData(width, height, floatData, bitDepth, options) {
       } else {
         // HDR
         if (transfer === 'pq') {
-          const [rp, gp, bp] = preprocessPixel(r, g, b, options);
-          const r_nit = rp * sdrWhite;
-          const g_nit = gp * sdrWhite;
-          const b_nit = bp * sdrWhite;
-          // Rec.2020 Primaries
-          const r_2020 = 0.6274040 * r_nit + 0.3292820 * g_nit + 0.0433136 * b_nit;
-          const g_2020 = 0.0690970 * r_nit + 0.9195400 * g_nit + 0.0113612 * b_nit;
-          const b_2020 = 0.0163916 * r_nit + 0.0880132 * g_nit + 0.8955950 * b_nit;
-          // PQ transfer function
-          const r_pq = linearToPQ(r_2020);
-          const g_pq = linearToPQ(g_2020);
-          const b_pq = linearToPQ(b_2020);
+          const processed = preprocessPixel(r, g, b, options);
+          const [rp, gp, bp] = convertPrimaries(processed, 'rec709', 'rec2020');
+          const r_pq = encodeTransfer(rp, 'pq', { referenceWhiteNits: referenceNits });
+          const g_pq = encodeTransfer(gp, 'pq', { referenceWhiteNits: referenceNits });
+          const b_pq = encodeTransfer(bp, 'pq', { referenceWhiteNits: referenceNits });
           // Quantize
           ri = Math.min(maxVal, Math.max(0, Math.round(r_pq * maxVal)));
           gi = Math.min(maxVal, Math.max(0, Math.round(g_pq * maxVal)));
           bi = Math.min(maxVal, Math.max(0, Math.round(b_pq * maxVal)));
         } else if (transfer === 'hlg') {
-          const [rp, gp, bp] = preprocessPixel(r, g, b, options);
-          // Rec.2020 Primaries
-          const r_2020 = 0.6274040 * rp + 0.3292820 * gp + 0.0433136 * bp;
-          const g_2020 = 0.0690970 * rp + 0.9195400 * gp + 0.0113612 * bp;
-          const b_2020 = 0.0163916 * rp + 0.0880132 * gp + 0.8955950 * bp;
-          // Normalize to HLG signal range
-          const r_norm = r_2020 / hlgNorm;
-          const g_norm = g_2020 / hlgNorm;
-          const b_norm = b_2020 / hlgNorm;
-          // HLG OETF
-          const r_hlg = linearToHLG(r_norm);
-          const g_hlg = linearToHLG(g_norm);
-          const b_hlg = linearToHLG(b_norm);
+          const processed = preprocessPixel(r, g, b, options);
+          const [rp, gp, bp] = convertPrimaries(processed, 'rec709', 'rec2020');
+          const [r_hlg, g_hlg, b_hlg] = encodeHlgRgb([rp, gp, bp], {
+            referenceWhiteNits: referenceNits,
+            peakNits: options.hlgPeakNits || DEFAULT_HLG_PEAK_NITS,
+            gamma: options.hlgGamma || DEFAULT_HLG_SYSTEM_GAMMA
+          });
           // Quantize
           ri = Math.min(maxVal, Math.max(0, Math.round(r_hlg * maxVal)));
           gi = Math.min(maxVal, Math.max(0, Math.round(g_hlg * maxVal)));
           bi = Math.min(maxVal, Math.max(0, Math.round(b_hlg * maxVal)));
         } else {
-          // Linear Rec.709
+          // Linear Rec.709 stored with a fixed, recoverable luminance scale.
           const [rp, gp, bp] = preprocessPixel(r, g, b, options);
-          ri = Math.min(maxVal, Math.max(0, Math.round(rp * linearScaleFactor)));
-          gi = Math.min(maxVal, Math.max(0, Math.round(gp * linearScaleFactor)));
-          bi = Math.min(maxVal, Math.max(0, Math.round(bp * linearScaleFactor)));
+          ri = Math.min(maxVal, Math.max(0, Math.round(rp * referenceNits / linearScaleNits * maxVal)));
+          gi = Math.min(maxVal, Math.max(0, Math.round(gp * referenceNits / linearScaleNits * maxVal)));
+          bi = Math.min(maxVal, Math.max(0, Math.round(bp * referenceNits / linearScaleNits * maxVal)));
         }
-        a = Math.min(1.0, Math.max(0.0, a));
         ai = Math.min(maxVal, Math.max(0, Math.round(a * maxVal)));
       }
 
@@ -367,25 +240,23 @@ function buildPngRawData(width, height, floatData, bitDepth, options) {
  * @returns {Promise<Uint8Array>}
  */
 export async function encodePNG(width, height, floatData, options) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new TypeError('PNG width and height must be positive integers.');
+  }
+  if (!floatData || floatData.length !== width * height * 4) {
+    throw new TypeError('PNG image data must contain exactly width × height × 4 RGBA values.');
+  }
+  options = options || {};
   const bitDepth = options.bitDepth || 16;
+  if (![10, 12, 16].includes(bitDepth)) throw new RangeError('PNG bit depth must be 10, 12 or 16.');
   const type = options.type || 'hdr';
   const transfer = options.transfer || 'linear';
-
-  // Check if there is any non-zero alpha in the input data.
-  // Many HDR screenshots (e.g. JXR, EXR) contain all-zero alpha channel values,
-  // which would make the exported PNG completely transparent/blank.
-  let hasValidAlpha = false;
-  for (let i = 3; i < floatData.length; i += 4) {
-    if (floatData[i] > 0.0) {
-      hasValidAlpha = true;
-      break;
-    }
-  }
+  if (!['sdr', 'hdr'].includes(type)) throw new TypeError(`Unsupported PNG type: ${type}`);
+  if (!['linear', 'pq', 'hlg'].includes(transfer)) throw new TypeError(`Unsupported PNG transfer: ${transfer}`);
 
   // 1. Build uncompressed scanline data
   const rawData = buildPngRawData(width, height, floatData, bitDepth, {
-    ...options,
-    forceOpaque: !hasValidAlpha
+    ...options
   });
 
   // 2. Compress scanline data using browser-native DEFLATE (Zlib format)
@@ -403,21 +274,27 @@ export async function encodePNG(width, height, floatData, options) {
   ihdrData[12] = 0; // Interlace method = 0
   const ihdrChunk = writeChunk('IHDR', ihdrData);
 
-  // 4. Assemble cICP chunk if HDR
-  let cicpChunk = null;
-  if (type === 'hdr') {
-    let cicpData;
-    if (transfer === 'pq') {
-      // Primaries = 9 (BT.2020), Transfer = 16 (PQ), Matrix = 0 (RGB), Range = 1 (Full)
-      cicpData = new Uint8Array([9, 16, 0, 1]);
-    } else if (transfer === 'hlg') {
-      // Primaries = 9 (BT.2020), Transfer = 18 (HLG), Matrix = 0 (RGB), Range = 1 (Full)
-      cicpData = new Uint8Array([9, 18, 0, 1]);
-    } else {
-      // Primaries = 1 (BT.709), Transfer = 8 (Linear), Matrix = 0 (RGB), Range = 1 (Full)
-      cicpData = new Uint8Array([1, 8, 0, 1]);
-    }
-    cicpChunk = writeChunk('cICP', cicpData);
+  // cICP uses BT.709 primaries for SDR/linear RGB and BT.2020 for PQ/HLG.
+  let cicpData;
+  if (type === 'sdr') cicpData = new Uint8Array([1, 13, 0, 1]); // BT.709 / sRGB
+  else if (transfer === 'pq') cicpData = new Uint8Array([9, 16, 0, 1]);
+  else if (transfer === 'hlg') cicpData = new Uint8Array([9, 18, 0, 1]);
+  else cicpData = new Uint8Array([1, 8, 0, 1]); // linear Rec.709
+  const cicpChunk = writeChunk('cICP', cicpData);
+  const sbitChunk = writeChunk('sBIT', new Uint8Array([bitDepth, bitDepth, bitDepth, bitDepth]));
+  const metadataChunks = [];
+  if (type === 'hdr' && transfer === 'linear') {
+    const scale = String(Math.max(1, options.linearScaleNits || options.targetPeak || 1000));
+    metadataChunks.push(writeChunk('tEXt', new TextEncoder().encode(`LuminaLinearScaleNits\0${scale}`)));
+  }
+  if (type === 'hdr' && transfer === 'hlg') {
+    const peakNits = String(options.hlgPeakNits || DEFAULT_HLG_PEAK_NITS);
+    const gamma = String(options.hlgGamma || DEFAULT_HLG_SYSTEM_GAMMA);
+    metadataChunks.push(writeChunk('tEXt', new TextEncoder().encode(`LuminaHlgPeakNits\0${peakNits}`)));
+    metadataChunks.push(writeChunk('tEXt', new TextEncoder().encode(`LuminaHlgSystemGamma\0${gamma}`)));
+  }
+  if (options.alphaMode) {
+    metadataChunks.push(writeChunk('tEXt', new TextEncoder().encode(`LuminaAlphaMode\0${options.alphaMode}`)));
   }
 
   // 5. Assemble IDAT chunk
@@ -428,11 +305,7 @@ export async function encodePNG(width, height, floatData, options) {
 
   // 7. Write everything to single output buffer
   const pngHeader = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-  const chunks = [pngHeader, ihdrChunk];
-  if (cicpChunk) {
-    chunks.push(cicpChunk);
-  }
-  chunks.push(idatChunk, iendChunk);
+  const chunks = [pngHeader, ihdrChunk, sbitChunk, cicpChunk, ...metadataChunks, idatChunk, iendChunk];
 
   let totalSize = 0;
   for (const c of chunks) {
